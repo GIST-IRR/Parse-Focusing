@@ -102,3 +102,32 @@ class PCFG(PCFG_base):
 
         else:
             return {'partition': logZ}
+
+    @torch.enable_grad()
+    def _partition_function(self, rules, depth):
+        terms = rules['unary']
+        rule_score = rules['rule']
+        root_score = rules['root']
+        batch_size, N= rule_score.shape[:2]
+        T = terms.shape[2]
+
+        rule_score = rule_score.reshape(batch_size, N, -1)
+        bias = torch.ones(batch_size, T).cuda()
+        t = torch.zeros(batch_size, N, 1).cuda()
+
+        for i in range(depth):
+            t = t.view(batch_size, -1) 
+            t = torch.cat((t, bias), 1)
+
+            tmp = []
+            for b in range(batch_size):
+                tmp.append(torch.outer(t[b], t[b]).view(-1).unsqueeze(0))
+            t = torch.cat(tmp).unsqueeze(2)
+            # t = torch.outer(t, t).view(batch_size, -1, 1)
+
+            t = torch.matmul(torch.exp(rule_score), t)
+            t = torch.clamp(t, min=0, max=1)
+
+        r = torch.log(torch.matmul(torch.exp(root_score).unsqueeze(1), t))
+
+        return r.squeeze()

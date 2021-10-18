@@ -10,13 +10,15 @@ from pathlib import Path
 from easydict import EasyDict as edict
 import yaml
 
+import random
+import numpy as np
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='PCFGs'
     )
     parser.add_argument('--conf', '-c', default='')
     parser.add_argument('--device', '-d', default='0')
-
 
     args2 = parser.parse_args()
     yaml_cfg = yaml.load(open(args2.conf, 'r'))
@@ -27,10 +29,23 @@ if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = args.device
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-
     config_path = Path(args.conf  if args.conf else args2.load_from_dir + "/config.yaml")
     config_name = config_path.stem
     args.save_dir = args.save_dir + "/{}".format(config_name)
+
+    # Set the random seed for reproducible experiments
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.cuda.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
+
+    # Auto-generation of log dir
+    log_dir = args2.conf.split('/')[-1].split('.')[0]
+    if not os.path.exists(f'log/{log_dir}'):
+        os.mkdir(f'log/{log_dir}')
 
     try:
         command = Train()

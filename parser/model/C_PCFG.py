@@ -44,6 +44,8 @@ class CompoundPCFG(nn.Module):
 
         self.NT_T = self.NT + self.T
         self.rule_mlp = nn.Linear(input_dim, (self.NT_T) ** 2)
+        # Partition function
+        self.depth = 100
 
         self._initialize()
 
@@ -61,7 +63,7 @@ class CompoundPCFG(nn.Module):
         def enc(x):
             x_embbed = self.enc_emb(x)
             x_packed = pack_padded_sequence(
-                x_embbed, seq_len, batch_first=True, enforce_sorted=False
+                x_embbed, seq_len.cpu(), batch_first=True, enforce_sorted=False
             )
             h_packed, _ = self.enc_rnn(x_packed)
             padding_value = float("-inf")
@@ -127,6 +129,11 @@ class CompoundPCFG(nn.Module):
     def loss(self, input):
         rules = self.forward(input)
         result =  self.pcfg._inside(rules=rules, lens=input['seq_len'])
+        # Partition function
+        if self.depth > 0:
+            pf = self.pcfg._partition_function(rules=rules, depth=self.depth)
+            result['partition'] = result['partition'] - pf
+
         loss =  (-result['partition'] + rules['kl']).mean()
         return loss
 
