@@ -120,6 +120,11 @@ class NeuralLPCFG(nn.Module):
     def loss(self, input):
         rules = self.forward(input)
         result =  self.pcfg.loss(rules, input['seq_len'])
+        # Partition function
+        if self.depth > 0:
+            pf = self.pcfg._partition_function(rules=rules, depth=self.depth)
+            result['partition'] = result['partition'] - pf
+            
         return -result['partition'].mean()
 
     def evaluate(self, input, decode_type='mbr', eval_dep=False):
