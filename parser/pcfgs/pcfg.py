@@ -105,6 +105,7 @@ class PCFG(PCFG_base):
 
     @torch.enable_grad()
     def _partition_function(self, rules, depth):
+        eps = 1e-8
         terms = rules['unary']
         rule_score = rules['rule']
         root_score = rules['root']
@@ -128,6 +129,7 @@ class PCFG(PCFG_base):
             t = torch.matmul(torch.exp(rule_score), t)
             t = torch.clamp(t, min=0, max=1)
 
-        r = torch.log(torch.matmul(torch.exp(root_score).unsqueeze(1), t))
+        r = torch.matmul(torch.exp(root_score).unsqueeze(1), t) + eps
+        r = torch.log(r)
 
         return r.squeeze()

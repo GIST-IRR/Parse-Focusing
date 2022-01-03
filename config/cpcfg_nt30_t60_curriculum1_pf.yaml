@@ -1,6 +1,6 @@
-device: 0
+device: 3
 save_dir : 'log'
-seed: 3435
+# seed: 3435
 
 data:
   train_file: 'data/ptb-train.pickle'
@@ -19,7 +19,7 @@ model:
   w_dim: 512
   h_dim: 512
   z_dim: 64
-
+  depth: 100
 
 train:
   batch_size: 4

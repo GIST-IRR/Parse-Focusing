@@ -1,11 +1,11 @@
-device: 3
+device: 2
 save_dir : 'log'
 # seed: 3435
 
 data:
-  train_file: 'data/ptb-train.pickle'
-  val_file: 'data/ptb-val.pickle'
-  test_file: 'data/ptb-test.pickle'
+  train_file: 'data/data.clean/chinese-train.pkl'
+  val_file: 'data/data.clean/chinese-valid.pkl'
+  test_file: 'data/data.clean/chinese-test.pkl'
   vocab_type: 'max_size'
   vocab_size: 10000
   min_freq: 2

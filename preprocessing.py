@@ -2,6 +2,8 @@ from nltk import Tree
 import argparse
 import pickle
 
+import os
+
 
 def factorize(tree):
     def track(tree, i):
@@ -45,23 +47,28 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='preprocess ptb file.'
     )
-    parser.add_argument('--train_file', default='data/ptb-train.txt')
-    parser.add_argument('--val_file', default='data/ptb-valid.txt')
-    parser.add_argument('--test_file', default='data/ptb-test.txt')
+    # parser.add_argument('--train_file', default='data/ptb-train.txt')
+    # parser.add_argument('--val_file', default='data/ptb-valid.txt')
+    # parser.add_argument('--test_file', default='data/ptb-test.txt')
+    parser.add_argument('--dir', required=True)
+    parser.add_argument('--prefix', default='ptb')
     parser.add_argument('--cache_path', default='data/')
-
     args = parser.parse_args()
 
-    result = create_dataset(args.train_file)
-    with open(args.cache_path+"train.pickle", "wb") as f:
+    train_file = os.path.join(args.dir, f'{args.prefix}-train.txt')
+    valid_file = os.path.join(args.dir, f'{args.prefix}-valid.txt')
+    test_file = os.path.join(args.dir, f'{args.prefix}-test.txt')
+
+    result = create_dataset(train_file)
+    with open(os.path.join(args.cache_path, f"{args.prefix}-train.pkl"), "wb") as f:
         pickle.dump(result, f)
 
-    result = create_dataset(args.val_file)
-    with open(args.cache_path+"val.pickle", "wb") as f:
+    result = create_dataset(valid_file)
+    with open(os.path.join(args.cache_path, f"{args.prefix}-valid.pkl"), "wb") as f:
         pickle.dump(result, f)
 
-    result = create_dataset(args.test_file)
-    with open(args.cache_path+"test.pickle", "wb") as f:
+    result = create_dataset(test_file)
+    with open(os.path.join(args.cache_path, f"{args.prefix}-test.pkl"), "wb") as f:
         pickle.dump(result, f)
 
 

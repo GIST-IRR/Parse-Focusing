@@ -6,6 +6,7 @@ from tqdm import tqdm
 from parser.helper.metric import LikelihoodMetric,  UF1, LossMetric, UAS
 
 import time
+import pickle
 
 class CMD(object):
     def __call__(self, args):
@@ -40,17 +41,17 @@ class CMD(object):
         t = tqdm(loader, total=int(len(loader)),  position=0, leave=True)
         print('decoding mode:{}'.format(decode_type))
         print('evaluate_dep:{}'.format(eval_dep))
+        # rules = [] # debugging
         for x, y in t:
             result = model.evaluate(x, decode_type=decode_type, eval_dep=eval_dep)
             metric_f1(result['prediction'], y['gold_tree'])
             metric_ll(result['partition'], x['seq_len'])
+            # rules.append(result['rules']) # debugging
             if eval_dep:
                 metric_uas(result['prediction_arc'], y['head'])
+        # with open('prop_debug_1.pkl', 'wb') as f:
+        #     pickle.dump(rules, f)
         if not eval_dep:
             return metric_f1, metric_ll
         else:
             return metric_f1, metric_uas, metric_ll
-
-
-
-

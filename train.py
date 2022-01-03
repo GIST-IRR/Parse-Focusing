@@ -34,13 +34,14 @@ if __name__ == '__main__':
     args.save_dir = args.save_dir + "/{}".format(config_name)
 
     # Set the random seed for reproducible experiments
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    torch.cuda.manual_seed(args.seed)
-    torch.cuda.manual_seed_all(args.seed)
+    if hasattr(args, 'seed'):
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        torch.cuda.manual_seed(args.seed)
+        torch.cuda.manual_seed_all(args.seed)
 
     # Auto-generation of log dir
     log_dir = args2.conf.split('/')[-1].split('.')[0]

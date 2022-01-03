@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-
 import os
 from parser.cmds import Evaluate
 import torch
@@ -12,12 +11,15 @@ import click
 @click.option("--eval_dep", default=False, help="evaluate dependency, only for N(B)L-PCFG")
 @click.option("--decode_type", default='mbr', help="viterbi or mbr")
 @click.option("--load_from_dir", default="")
+@click.option("--save_to_dir", default="")
 @click.option("--device", '-d', default='0')
-def main(eval_dep, decode_type, load_from_dir, device):
+def main(eval_dep, decode_type, load_from_dir, save_to_dir, device):
     yaml_cfg = yaml.load(open(load_from_dir + "/config.yaml", 'r'))
     args = edict(yaml_cfg)
     args.device = device
     args.load_from_dir = load_from_dir
+    args.save_to_dir = save_to_dir
+    args.model.model_name = args.model.model_name+"_debug"
     print(f"Set the device with ID {args.device} visible")
     os.environ['CUDA_VISIBLE_DEVICES'] = args.device
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'

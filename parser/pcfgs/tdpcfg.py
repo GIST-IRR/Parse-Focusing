@@ -109,10 +109,3 @@ class TDPCFG(PCFG_base):
                     "prediction" : self._get_prediction(logZ, span_indicator, lens, mbr=True),
                     "partition" : logZ
                     }
-
-
-
-
-
-
-

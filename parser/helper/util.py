@@ -7,6 +7,8 @@ from parser.model import NeuralPCFG, CompoundPCFG, TNPCFG, NeuralBLPCFG, NeuralL
 
 import torch
 
+from parser.model.C_PCFG_debug import CompoundPCFG_D
+
 
 def get_model(args, dataset):
     if args.model_name == 'NPCFG':
@@ -14,6 +16,9 @@ def get_model(args, dataset):
 
     elif args.model_name == 'CPCFG':
         return CompoundPCFG(args, dataset).to(dataset.device)
+
+    elif args.model_name == 'CPCFG_debug':
+        return CompoundPCFG_D(args, dataset).to(dataset.device)
 
     elif args.model_name == 'TNPCFG':
         return TNPCFG(args, dataset).to(dataset.device)

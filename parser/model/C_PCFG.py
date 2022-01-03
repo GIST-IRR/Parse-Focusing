@@ -45,7 +45,7 @@ class CompoundPCFG(nn.Module):
         self.NT_T = self.NT + self.T
         self.rule_mlp = nn.Linear(input_dim, (self.NT_T) ** 2)
         # Partition function
-        self.depth = 100
+        self.depth = args.depth
 
         self._initialize()
 
@@ -149,5 +149,3 @@ class CompoundPCFG(nn.Module):
 
         result['partition'] -= rules['kl']
         return result
-
-
