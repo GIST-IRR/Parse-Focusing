@@ -19,6 +19,9 @@ class Train(CMD):
 
         dataset = DataModule(args)
         self.model = get_model(args.model, dataset)
+        if hasattr(args, 'pretrained_model'):
+            with open(args.pretrained_model, 'rb') as f:
+                self.model.load_state_dict(torch.load(f))
         create_save_path(args)
         log = get_logger(args)
         self.optimizer = get_optimizer(args.optimizer, self.model)

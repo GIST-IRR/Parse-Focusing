@@ -2,4 +2,3 @@ data/
 log/
 .vscode/
 *.pyc
-model/
