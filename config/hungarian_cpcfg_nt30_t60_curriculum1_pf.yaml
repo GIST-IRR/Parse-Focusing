@@ -1,11 +1,11 @@
-device: 1
+device: 0
 save_dir : 'log'
 # seed: 3435
 
 data:
-  train_file: 'data/data.clean/hebrew-train.pkl'
-  val_file: 'data/data.clean/hebrew-valid.pkl'
-  test_file: 'data/data.clean/hebrew-test.pkl'
+  train_file: 'data/data.clean/hungarian-train.pkl'
+  val_file: 'data/data.clean/hungarian-valid.pkl'
+  test_file: 'data/data.clean/hungarian-test.pkl'
   vocab_type: 'max_size'
   vocab_size: 10000
   min_freq: 2
