@@ -47,16 +47,17 @@ class CompoundPCFG(nn.Module):
         # Partition function
         self.depth = args.depth
 
-        if args.fix_root:
-            self.root_emb.requires_grad = False
-        if args.fix_nonterm:
-            self.nonterm_emb.requires_grad = False
-        if args.fix_term:
-            self.term_emb.requires_grad = False
-            
-        if args.fix_root_mlp:
-            for p in self.root_mlp.parameters():
-                p.requires_grad = False
+        if hasattr(args, 'fix_root'):
+            self.root_emb.requires_grad = True if args.fix_root else False
+        if hasattr(args, 'fix_nonterm'):
+            self.nonterm_emb.requires_grad = True if args.fix_root else False
+        if hasattr(args, 'fix_term'):
+            self.term_emb.requires_grad = True if args.fix_root else False
+
+        if hasattr(args, 'fix_root_mlp'):
+            if args.fix_root_mlp:
+                for p in self.root_mlp.parameters():
+                    p.requires_grad = False
         self._initialize()
 
 

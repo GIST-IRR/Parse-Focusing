@@ -1,11 +1,12 @@
 device: 3
 save_dir : 'log'
 # seed: 3435
+# pretrained_model: 'log/pretrained_cpcfg_nt30_t60_curriculum1/CPCFG2022-01-05-10_25_58/best.pt'
 
 data:
-  train_file: 'data/data.redist/english-depth-train.pkl'
-  val_file: 'data/data.redist/english-depth-valid.pkl'
-  test_file: 'data/data.redist/english-depth-test.pkl'
+  train_file: 'data/data.clean/english-train.pkl'
+  val_file: 'data/data.clean/english-valid.pkl'
+  test_file: 'data/data.clean/english-test.pkl'
   vocab_type: 'max_size'
   vocab_size: 10000
   min_freq: 2
@@ -19,7 +20,11 @@ model:
   w_dim: 512
   h_dim: 512
   z_dim: 64
-  depth: 100
+  depth: 0
+  fix_root: True
+  fix_nonterm: True
+  fix_term: True
+  fix_root_mlp: False
 
 train:
   batch_size: 4

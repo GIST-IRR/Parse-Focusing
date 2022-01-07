@@ -3,6 +3,7 @@ import argparse
 import pickle
 
 import os
+import logging
 
 
 def get_trees(file):
@@ -77,6 +78,17 @@ if __name__ == '__main__':
     valid_file = os.path.join(args.dir, f'{args.prefix}-valid.txt')
     test_file = os.path.join(args.dir, f'{args.prefix}-test.txt')
 
+    print(f'[INFO] Dataset are saved on {args.cache_path}.')
+    if not os.path.exists(args.cache_path):
+        print(f'[INFO] Creating save path...', end='')
+        os.makedirs(args.cache_path, exist_ok=True)
+        print(f'DONE.')
+
+    # logging.basicConfig(
+    #     filename=os.path.join(args.cache_path, f'{args.prefix}-{args.criterion}.log'),
+    #     format='%(asctime)s - [%(levelname)s] - %(message)s'
+    # )
+
     print('[INFO] Load dataset...', end='')
     train_trees = get_trees(train_file)
     valid_trees = get_trees(valid_file)
@@ -96,22 +108,16 @@ if __name__ == '__main__':
     elif args.criterion == 'length':
         criterion = length
 
-    print(f'[INFO] Dataset distributed based on {args.criterion} of trees.')
+    print(f'Dataset distributed based on {args.criterion} of trees.')
     print(f'[INFO] Sorting...')
     trees = sorted(trees, key=lambda t : criterion(t))
     train_trees = trees[:split[0]]
     valid_trees = trees[split[0]:split[1]]
     test_trees = trees[split[1]:]
 
-    print(f'[INFO] train set contain {args.criterion} {criterion(train_trees[0])} from {args.criterion} {criterion(train_trees[-1])}: total {len(train_trees)}')
-    print(f'[INFO] valid set contain {args.criterion} {criterion(valid_trees[0])} from {args.criterion} {criterion(valid_trees[-1])}: total {len(valid_trees)}')
-    print(f'[INFO] test set contain {args.criterion} {criterion(test_trees[0])} from {args.criterion} {criterion(test_trees[-1])}: total {len(test_trees)}')
-
-    print(f'[INFO] Dataset are saved on {args.cache_path}.')
-    if not os.path.exists(args.cache_path):
-        print(f'[INFO] Creating save path...', end='')
-        os.makedirs(args.cache_path, exist_ok=True)
-        print(f'DONE.')
+    print(f'train set contain {args.criterion} {criterion(train_trees[0])} from {args.criterion} {criterion(train_trees[-1])}: total {len(train_trees)}')
+    print(f'valid set contain {args.criterion} {criterion(valid_trees[0])} from {args.criterion} {criterion(valid_trees[-1])}: total {len(valid_trees)}')
+    print(f'test set contain {args.criterion} {criterion(test_trees[0])} from {args.criterion} {criterion(test_trees[-1])}: total {len(test_trees)}')
 
     result = create_dataset_from_trees(train_trees)
     with open(os.path.join(args.cache_path, f"{args.prefix}-{args.criterion}-train.pkl"), "wb") as f:
