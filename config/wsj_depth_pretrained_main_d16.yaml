@@ -1,6 +1,7 @@
-device: 0
+device: 2
 save_dir : 'log'
 # seed: 3435
+pretrained_model: 'log/wsj_depth_pretrained/CPCFG2022-01-08-08_53_20/best.pt'
 
 data:
   train_file: 'data/data.redist/english-depth-train.pkl'
@@ -20,14 +21,15 @@ model:
   h_dim: 512
   z_dim: 64
   depth: 16
+  # fix_root: True
 
 train:
   batch_size: 4
-  max_epoch: 10
+  max_epoch: 9
   max_len: 40
   #whether to use curriculum learning stragegy.
   curriculum: 1
-  start_len: 30
+  start_len: 31
   increment: 1
   patience: 5
   clip: 3

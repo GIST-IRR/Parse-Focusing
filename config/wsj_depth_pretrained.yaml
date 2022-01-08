@@ -1,4 +1,4 @@
-device: 0
+device: 2
 save_dir : 'log'
 # seed: 3435
 
@@ -19,11 +19,12 @@ model:
   w_dim: 512
   h_dim: 512
   z_dim: 64
-  depth: 16
+  depth: 0
+  # fix_root: True
 
 train:
   batch_size: 4
-  max_epoch: 10
+  max_epoch: 1
   max_len: 40
   #whether to use curriculum learning stragegy.
   curriculum: 1
