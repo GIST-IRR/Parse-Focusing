@@ -116,18 +116,21 @@ class PCFG(PCFG_base):
         bias = torch.ones(batch_size, T).cuda()
         t = torch.zeros(batch_size, N, 1).cuda()
 
-        for i in range(depth):
-            t = t.view(batch_size, -1) 
+        if depth <= 2:
+            t = t.view(batch_size, -1)
             t = torch.cat((t, bias), 1)
+        else:
+            for _ in range(depth-2):
+                t = t.view(batch_size, -1) 
+                t = torch.cat((t, bias), 1)
 
-            tmp = []
-            for b in range(batch_size):
-                tmp.append(torch.outer(t[b], t[b]).view(-1).unsqueeze(0))
-            t = torch.cat(tmp).unsqueeze(2)
-            # t = torch.outer(t, t).view(batch_size, -1, 1)
+                tmp = []
+                for b in range(batch_size):
+                    tmp.append(torch.outer(t[b], t[b]).view(-1).unsqueeze(0))
+                t = torch.cat(tmp).unsqueeze(2)
 
-            t = torch.matmul(torch.exp(rule_score), t)
-            t = torch.clamp(t, min=0, max=1)
+                t = torch.matmul(torch.exp(rule_score), t)
+                t = torch.clamp(t, min=0, max=1)
 
         r = torch.matmul(torch.exp(root_score).unsqueeze(1), t) + eps
         r = torch.log(r)

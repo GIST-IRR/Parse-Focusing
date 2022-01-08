@@ -10,6 +10,8 @@ from parser.helper.util import *
 from parser.helper.data_module import DataModule
 from pathlib import Path
 
+import math
+
 class Train(CMD):
 
     def __call__(self, args):
@@ -49,6 +51,13 @@ class Train(CMD):
                 train_loader = dataset.train_dataloader(max_len=min(train_arg.start_len + epoch - 1, train_arg.max_len))
             else:
                 train_loader = dataset.train_dataloader(max_len=train_arg.max_len)
+
+            # depth curriculum
+            if epoch > 1:
+                if train_arg.init_depth > 0:
+                    depth = max(train_arg.min_depth, int(train_arg.init_depth*0.9/math.sqrt(epoch-1)))
+                    self.model.update_depth(depth)
+                    log.info(f'GIL Depth: {depth}')
 
             train_loader_autodevice = DataPrefetcher(train_loader, device=self.device)
             eval_loader_autodevice = DataPrefetcher(eval_loader, device=self.device)
