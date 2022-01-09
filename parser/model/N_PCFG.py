@@ -1,10 +1,12 @@
 import torch
 import torch.nn as nn
 from parser.modules.res import ResLayer
+from ..pcfgs.pcfg import PCFG
 
 class NeuralPCFG(nn.Module):
     def __init__(self, args, dataset):
         super(NeuralPCFG, self).__init__()
+        self.pcfg = PCFG()
         self.device = dataset.device
         self.args = args
 
@@ -13,6 +15,7 @@ class NeuralPCFG(nn.Module):
         self.V = len(dataset.word_vocab)
 
         self.s_dim = args.s_dim
+        self.depth = args.depth
 
         self.term_emb = nn.Parameter(torch.randn(self.T, self.s_dim))
         self.nonterm_emb = nn.Parameter(torch.randn(self.NT, self.s_dim))
@@ -74,6 +77,9 @@ class NeuralPCFG(nn.Module):
     def loss(self, input):
         rules = self.forward(input)
         result =  self.pcfg._inside(rules=rules, lens=input['seq_len'])
+        if self.depth > 0:
+            pf = self.pcfg._partition_function(rules=rules, depth=self.depth)
+            result['partition'] = result['partition'] - pf
         return -result['partition'].mean()
 
 

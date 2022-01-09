@@ -136,3 +136,36 @@ class PCFG_base():
             predicted_arc[a[0]].append((a[1] - 1, a[2] -1 ))
         return predicted_arc
 
+    @torch.enable_grad()
+    def _partition_function(self, rules, depth):
+        eps = 1e-8
+        terms = rules['unary']
+        rule_score = rules['rule']
+        root_score = rules['root']
+        batch_size, N= rule_score.shape[:2]
+        T = terms.shape[2]
+
+        rule_score = rule_score.reshape(batch_size, N, -1)
+        bias = torch.ones(batch_size, T).cuda()
+        t = torch.zeros(batch_size, N, 1).cuda()
+
+        if depth <= 2:
+            t = t.view(batch_size, -1)
+            t = torch.cat((t, bias), 1)
+        else:
+            for _ in range(depth-2):
+                t = t.view(batch_size, -1) 
+                t = torch.cat((t, bias), 1)
+
+                tmp = []
+                for b in range(batch_size):
+                    tmp.append(torch.outer(t[b], t[b]).view(-1).unsqueeze(0))
+                t = torch.cat(tmp).unsqueeze(2)
+
+                t = torch.matmul(torch.exp(rule_score), t)
+                t = torch.clamp(t, min=0, max=1)
+
+        r = torch.matmul(torch.exp(root_score).unsqueeze(1), t) + eps
+        r = torch.log(r)
+
+        return r.squeeze()
