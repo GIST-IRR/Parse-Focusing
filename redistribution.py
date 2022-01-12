@@ -14,6 +14,15 @@ def get_trees(file):
             trees.append(tree)
     return trees
 
+def get_cnf_trees(file):
+    trees = []
+    with open(file, 'r') as f:
+        for line in f:
+            tree = Tree.fromstring(line)
+            tree.chomsky_normal_form(horzMarkov=0, vertMarkov=1)
+            trees.append(tree)
+    return trees
+
 
 def factorize(tree):
     def track(tree, i):
@@ -72,6 +81,7 @@ if __name__ == '__main__':
     parser.add_argument('--prefix', default='ptb')
     parser.add_argument('--cache_path', default='data/')
     parser.add_argument('--criterion', default='depth', choices=['depth', 'length'])
+    parser.add_argument('--cnf', default=True)
     args = parser.parse_args()
 
     train_file = os.path.join(args.dir, f'{args.prefix}-train.txt')
@@ -90,9 +100,14 @@ if __name__ == '__main__':
     # )
 
     print('[INFO] Load dataset...', end='')
-    train_trees = get_trees(train_file)
-    valid_trees = get_trees(valid_file)
-    test_trees = get_trees(test_file)
+    if args.cnf:
+        train_trees = get_cnf_trees(train_file)
+        valid_trees = get_cnf_trees(valid_file)
+        test_trees = get_cnf_trees(test_file)
+    else:
+        train_trees = get_trees(train_file)
+        valid_trees = get_trees(valid_file)
+        test_trees = get_trees(test_file)
     print('DONE.')
 
     split = [len(train_trees), len(train_trees) + len(valid_trees)]

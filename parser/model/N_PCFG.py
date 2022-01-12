@@ -43,6 +43,9 @@ class NeuralPCFG(nn.Module):
             if p.dim() > 1:
                 torch.nn.init.xavier_uniform_(p)
 
+    def update_depth(self, depth):
+        self.depth = depth
+
     def forward(self, input, evaluating=False):
         x = input['word']
         b, n = x.shape[:2]

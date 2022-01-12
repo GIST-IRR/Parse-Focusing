@@ -55,7 +55,9 @@ class Train(CMD):
             # depth curriculum
             if epoch > 1:
                 if hasattr(train_arg, 'init_depth') and train_arg.init_depth > 0:
-                    depth = max(train_arg.min_depth, int(train_arg.init_depth*0.9/math.sqrt(epoch-1)))
+                    depth = train_arg.init_depth - ((train_arg.init_depth - train_arg.min_depth)//5)*(epoch-1)
+                    # depth = int(train_arg.init_depth/math.sqrt(epoch-1))
+                    depth = max(train_arg.min_depth, depth)
                     self.model.update_depth(depth)
                     log.info(f'GIL Depth: {depth}')
 

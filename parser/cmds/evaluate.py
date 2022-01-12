@@ -40,4 +40,4 @@ class Evaluate(CMD):
         log_file = os.path.join(os.path.dirname(args.load_from_dir), 'test.log')
         with open(log_file, 'a', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow([metric_f1.sentence_uf1, metric_f1.corpus_uf1, likelihood.avg_likelihood.item(), likelihood.perplexity.item()])
+            writer.writerow([args.load_from_dir, metric_f1.sentence_uf1, metric_f1.corpus_uf1, likelihood.avg_likelihood.item(), likelihood.perplexity.item()])

@@ -120,7 +120,7 @@ class PCFG(PCFG_base):
             t = t.view(batch_size, -1)
             t = torch.cat((t, bias), 1)
         else:
-            for _ in range(depth-2):
+            for _ in range(depth):
                 t = t.view(batch_size, -1) 
                 t = torch.cat((t, bias), 1)
 

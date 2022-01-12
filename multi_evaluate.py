@@ -16,7 +16,7 @@ def main():
     args = parser.parse_args()
 
     files = os.listdir(args.load_from_dir)
-    log_file = os.path.join(args.load_from_dir, 'test.log')
+    log_file = os.path.join(args.load_from_dir, f'{args.decode_type}-test.log')
     if os.path.exists(log_file):
         os.remove(log_file)
 

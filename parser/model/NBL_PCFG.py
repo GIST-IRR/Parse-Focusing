@@ -19,6 +19,8 @@ class NeuralBLPCFG(nn.Module):
         self.NT_T = self.NT + self.T
         self.dataset = dataset
 
+        self.depth = args.depth
+
         # embedding dimensions
         self.s_dim = args.s_dim
         self.r = args.r
@@ -72,6 +74,9 @@ class NeuralBLPCFG(nn.Module):
         for p in self.parameters():
             if p.dim() > 1:
                 torch.nn.init.xavier_uniform_(p)
+
+    def update_depth(self, depth):
+        self.depth = depth
 
     def forward(self, input):
         x = input['word']
