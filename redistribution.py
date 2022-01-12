@@ -23,6 +23,10 @@ def get_cnf_trees(file):
             trees.append(tree)
     return trees
 
+def trees_to_cnf(trees):
+    for t in trees:
+        t.chomsky_normal_form(horzMarkov=0, vertMarkov=1)
+    return trees
 
 def factorize(tree):
     def track(tree, i):
@@ -39,7 +43,6 @@ def factorize(tree):
             spans = [[i, j, 'NULL']] + spans
         return j, spans
     return track(tree, 0)[1]
-
 
 def create_dataset(file_name):
     word_array = []
@@ -80,8 +83,9 @@ if __name__ == '__main__':
     parser.add_argument('--dir', required=True)
     parser.add_argument('--prefix', default='ptb')
     parser.add_argument('--cache_path', default='data/')
-    parser.add_argument('--criterion', default='depth', choices=['depth', 'length'])
-    parser.add_argument('--cnf', default=True)
+    parser.add_argument('--repartition', default=False)
+    parser.add_argument('--criterion', default='depth', choices=['standard', 'depth', 'length'])
+    parser.add_argument('--cnf', action='store_true', default=False)
     args = parser.parse_args()
 
     train_file = os.path.join(args.dir, f'{args.prefix}-train.txt')
@@ -100,39 +104,42 @@ if __name__ == '__main__':
     # )
 
     print('[INFO] Load dataset...', end='')
-    if args.cnf:
-        train_trees = get_cnf_trees(train_file)
-        valid_trees = get_cnf_trees(valid_file)
-        test_trees = get_cnf_trees(test_file)
-    else:
-        train_trees = get_trees(train_file)
-        valid_trees = get_trees(valid_file)
-        test_trees = get_trees(test_file)
+    train_trees = get_trees(train_file)
+    valid_trees = get_trees(valid_file)
+    test_trees = get_trees(test_file)
     print('DONE.')
+    
+    if args.cnf:
+        print('[INFO] Convert trees to CNF trees...', end='')
+        train_trees = trees_to_cnf(train_trees)
+        valid_trees = trees_to_cnf(valid_trees)
+        test_trees = trees_to_cnf(test_trees)
+        print('DONE.')
 
-    split = [len(train_trees), len(train_trees) + len(valid_trees)]
-    trees = [*train_trees, *valid_trees, *test_trees]
+    if args.repartition:
+        split = [len(train_trees), len(train_trees) + len(valid_trees)]
+        trees = [*train_trees, *valid_trees, *test_trees]
 
-    def depth(tree):
-        return tree.height()
-    def length(tree):
-        return len(tree.leaves())
+        def depth(tree):
+            return tree.height()
+        def length(tree):
+            return len(tree.leaves())
 
-    if args.criterion == 'depth':
-        criterion = depth
-    elif args.criterion == 'length':
-        criterion = length
+        if args.criterion == 'depth':
+            criterion = depth
+        elif args.criterion == 'length':
+            criterion = length
 
-    print(f'Dataset distributed based on {args.criterion} of trees.')
-    print(f'[INFO] Sorting...')
-    trees = sorted(trees, key=lambda t : criterion(t))
-    train_trees = trees[:split[0]]
-    valid_trees = trees[split[0]:split[1]]
-    test_trees = trees[split[1]:]
+        print(f'Dataset distributed based on {args.criterion} of trees.')
+        print(f'[INFO] Sorting...')
+        trees = sorted(trees, key=lambda t : criterion(t))
+        train_trees = trees[:split[0]]
+        valid_trees = trees[split[0]:split[1]]
+        test_trees = trees[split[1]:]
 
-    print(f'train set contain {args.criterion} {criterion(train_trees[0])} from {args.criterion} {criterion(train_trees[-1])}: total {len(train_trees)}')
-    print(f'valid set contain {args.criterion} {criterion(valid_trees[0])} from {args.criterion} {criterion(valid_trees[-1])}: total {len(valid_trees)}')
-    print(f'test set contain {args.criterion} {criterion(test_trees[0])} from {args.criterion} {criterion(test_trees[-1])}: total {len(test_trees)}')
+        print(f'train set contain {args.criterion} {criterion(train_trees[0])} from {args.criterion} {criterion(train_trees[-1])}: total {len(train_trees)}')
+        print(f'valid set contain {args.criterion} {criterion(valid_trees[0])} from {args.criterion} {criterion(valid_trees[-1])}: total {len(valid_trees)}')
+        print(f'test set contain {args.criterion} {criterion(test_trees[0])} from {args.criterion} {criterion(test_trees[-1])}: total {len(test_trees)}')
 
     result = create_dataset_from_trees(train_trees)
     with open(os.path.join(args.cache_path, f"{args.prefix}-{args.criterion}-train.pkl"), "wb") as f:
