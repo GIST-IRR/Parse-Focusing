@@ -1,4 +1,4 @@
-device: 3
+device: 0
 save_dir : 'log'
 # seed: 3435
 
@@ -32,8 +32,8 @@ train:
   increment: 1
   patience: 5
   clip: 3
-  init_depth: 50
-  min_depth: 16
+  init_depth: 62
+  min_depth: 31
 
 
 test:

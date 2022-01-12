@@ -1,6 +1,5 @@
-device: 0
+device: 2
 save_dir : 'log'
-seed: 3435
 
 data:
   train_file: 'data/ptb-train.pickle'
@@ -16,6 +15,7 @@ model:
   NT: 30
   T: 60
   s_dim: 256
+  depth: 0
 
 
 train:
@@ -28,6 +28,8 @@ train:
   increment: 1
   patience: 5
   clip: 3
+  init_depth: 111
+  min_depth: 37
 
 
 test:
