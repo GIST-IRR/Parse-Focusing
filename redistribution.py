@@ -23,9 +23,10 @@ def get_cnf_trees(file):
             trees.append(tree)
     return trees
 
-def trees_to_cnf(trees):
+def trees_to_cnf(trees, horzMarkov=0, vertMarkov=1):
+    trees = trees.copy()
     for t in trees:
-        t.chomsky_normal_form(horzMarkov=0, vertMarkov=1)
+        t.chomsky_normal_form(horzMarkov=horzMarkov, vertMarkov=vertMarkov)
     return trees
 
 def factorize(tree):
@@ -76,59 +77,46 @@ def create_dataset_from_trees(trees):
             'pos': pos_array,
             'gold_tree': gold_trees}
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(
-        description='preprocess ptb file.'
-    )
-    parser.add_argument('--dir', required=True)
-    parser.add_argument('--prefix', default='ptb')
-    parser.add_argument('--cache_path', default='data/')
-    parser.add_argument('--repartition', default=False)
-    parser.add_argument('--criterion', default='depth', choices=['standard', 'depth', 'length'])
-    parser.add_argument('--cnf', action='store_true', default=False)
-    args = parser.parse_args()
-
+def redistribution(args):
+    # Get path for the dataset
     train_file = os.path.join(args.dir, f'{args.prefix}-train.txt')
     valid_file = os.path.join(args.dir, f'{args.prefix}-valid.txt')
     test_file = os.path.join(args.dir, f'{args.prefix}-test.txt')
 
+    # Check save path and create if not exist
     print(f'[INFO] Dataset are saved on {args.cache_path}.')
     if not os.path.exists(args.cache_path):
         print(f'[INFO] Creating save path...', end='')
         os.makedirs(args.cache_path, exist_ok=True)
         print(f'DONE.')
 
-    # logging.basicConfig(
-    #     filename=os.path.join(args.cache_path, f'{args.prefix}-{args.criterion}.log'),
-    #     format='%(asctime)s - [%(levelname)s] - %(message)s'
-    # )
-
+    # Load dataset
     print('[INFO] Load dataset...', end='')
     train_trees = get_trees(train_file)
     valid_trees = get_trees(valid_file)
     test_trees = get_trees(test_file)
     print('DONE.')
-    
-    if args.cnf:
-        print('[INFO] Convert trees to CNF trees...', end='')
-        train_trees = trees_to_cnf(train_trees)
-        valid_trees = trees_to_cnf(valid_trees)
-        test_trees = trees_to_cnf(test_trees)
-        print('DONE.')
 
-    if args.repartition:
+    def depth(tree):
+        return tree.height()
+    def length(tree):
+        return len(tree.leaves())
+    def cnf_depth(tree):
+        tree = tree.copy()
+        tree.chomsky_normal_form()
+        return tree.height()
+
+    # Check splitting criterion
+    if args.criterion != 'standard':
         split = [len(train_trees), len(train_trees) + len(valid_trees)]
         trees = [*train_trees, *valid_trees, *test_trees]
-
-        def depth(tree):
-            return tree.height()
-        def length(tree):
-            return len(tree.leaves())
 
         if args.criterion == 'depth':
             criterion = depth
         elif args.criterion == 'length':
             criterion = length
+        elif args.criterion == 'cnf-depth':
+            criterion = cnf_depth
 
         print(f'Dataset distributed based on {args.criterion} of trees.')
         print(f'[INFO] Sorting...')
@@ -137,10 +125,32 @@ if __name__ == '__main__':
         valid_trees = trees[split[0]:split[1]]
         test_trees = trees[split[1]:]
 
-        print(f'train set contain {args.criterion} {criterion(train_trees[0])} from {args.criterion} {criterion(train_trees[-1])}: total {len(train_trees)}')
-        print(f'valid set contain {args.criterion} {criterion(valid_trees[0])} from {args.criterion} {criterion(valid_trees[-1])}: total {len(valid_trees)}')
-        print(f'test set contain {args.criterion} {criterion(test_trees[0])} from {args.criterion} {criterion(test_trees[-1])}: total {len(test_trees)}')
+    # Print dataset status
+    print(
+        f'train set contain : total {len(train_trees)}\n'
+        f'\tdepth: {min(map(depth, train_trees))} - {max(map(depth, train_trees))}\n'
+        f'\tCNF-depth: {min(map(cnf_depth, train_trees))} - {max(map(cnf_depth, train_trees))}'
+    )
+    print(
+        f'valid set contain : total {len(valid_trees)}\n'
+        f'\tdepth: {min(map(depth, valid_trees))} - {max(map(depth, valid_trees))}\n'
+        f'\tCNF-depth: {min(map(cnf_depth, valid_trees))} - {max(map(cnf_depth, valid_trees))}'
+    )
+    print(
+        f'test set contain : total {len(test_trees)}\n'
+        f'\tdepth: {min(map(depth, test_trees))} - {max(map(depth, test_trees))}\n'
+        f'\tCNF-depth: {min(map(cnf_depth, test_trees))} - {max(map(cnf_depth, test_trees))}'
+    )
 
+    # Change trees to CNF trees If option is true
+    if args.cnf:
+        print('[INFO] Convert trees to CNF trees...', end='')
+        train_trees = trees_to_cnf(train_trees)
+        valid_trees = trees_to_cnf(valid_trees)
+        test_trees = trees_to_cnf(test_trees)
+        print('DONE.')
+
+    print('[INFO] Saving dataset...', end='')
     result = create_dataset_from_trees(train_trees)
     with open(os.path.join(args.cache_path, f"{args.prefix}-{args.criterion}-train.pkl"), "wb") as f:
         pickle.dump(result, f)
@@ -152,5 +162,20 @@ if __name__ == '__main__':
     result = create_dataset_from_trees(test_trees)
     with open(os.path.join(args.cache_path, f"{args.prefix}-{args.criterion}-test.pkl"), "wb") as f:
         pickle.dump(result, f)
+    print('DONE.')
 
     print('Dataset distribution DONE!')
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        description='preprocess ptb file.'
+    )
+    parser.add_argument('--dir', required=True)
+    parser.add_argument('--prefix', default='english')
+    parser.add_argument('--cache_path', default='data/')
+    parser.add_argument('--criterion', default='standard', choices=['standard', 'depth', 'length', 'cnf-depth'])
+    parser.add_argument('--cnf', action='store_true', default=False)
+    args = parser.parse_args()
+
+    redistribution(args)

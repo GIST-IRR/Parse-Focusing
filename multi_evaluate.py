@@ -7,14 +7,7 @@ import torch
 
 from parser.cmds import Evaluate
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--eval_dep', default=False)
-    parser.add_argument('--load_from_dir', '-d', required=True, default='log')
-    parser.add_argument('--decode_type', default='mbr')
-    parser.add_argument('--device', default='0')
-    args = parser.parse_args()
-
+def multi_evaluate(args):
     files = os.listdir(args.load_from_dir)
     log_file = os.path.join(args.load_from_dir, f'{args.decode_type}-test.log')
     if os.path.exists(log_file):
@@ -34,4 +27,11 @@ def main():
             command(cfg, decode_type=args.decode_type, eval_dep=args.eval_dep)
 
 if __name__=="__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--eval_dep', default=False)
+    parser.add_argument('--load_from_dir', '-d', required=True, default='log')
+    parser.add_argument('--decode_type', default='mbr')
+    parser.add_argument('--device', default='0')
+    args = parser.parse_args()
+    
+    multi_evaluate(args)

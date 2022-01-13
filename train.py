@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+import multiprocessing
 import os
+from time import sleep
 from parser.cmds import Evaluate, Train
 import shutil
 import torch
@@ -12,15 +14,9 @@ import yaml
 
 import random
 import numpy as np
+import copy
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(
-        description='PCFGs'
-    )
-    parser.add_argument('--conf', '-c', default='')
-    parser.add_argument('--device', '-d', default='0')
-
-    args2 = parser.parse_args()
+def train(args2):
     yaml_cfg = yaml.load(open(args2.conf, 'r'))
     args = edict(yaml_cfg)
     args.update(args2.__dict__)
@@ -63,3 +59,26 @@ if __name__ == '__main__':
         shutil.rmtree(args.save_dir)
         print("log directory have been deleted.")
 
+def multi_train(args):
+    from multiprocessing import Pool
+    n_device = args.n_device
+    pool = Pool(processes=4)
+    for i in range(n_device):
+        targs = copy.copy(args)
+        targs.device = str(i)
+        pool.apply_async(train, targs)
+        sleep(1)
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        description='PCFGs'
+    )
+    parser.add_argument('--conf', '-c', default='')
+    parser.add_argument('--n_device', '-nd', type=int, default=1)
+    parser.add_argument('--device', '-d', default='0')
+    args = parser.parse_args()
+
+    if args.n_device < 2:
+        train(args)
+    else:
+        multi_train(args)
