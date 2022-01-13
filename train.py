@@ -59,15 +59,31 @@ def train(args2):
         shutil.rmtree(args.save_dir)
         print("log directory have been deleted.")
 
+def train_manager(args, event):
+    while event.is_set():
+        event.wait(1)
+    event.set()
+    train(args)
+    event.clear()
+
 def multi_train(args):
-    from multiprocessing import Pool
+    from multiprocessing import Pool, Manager
     n_device = args.n_device
+    n_models = args.n_models
+    events = [Manager().Event() for _ in range(n_device)]
+
     pool = Pool(processes=4)
-    for i in range(n_device):
+    for i in range(n_models):
+        print(f'process {i}')
+        n = i % n_device
+        event = events[n]
         targs = copy.copy(args)
-        targs.device = str(i)
-        pool.apply_async(train, targs)
-        sleep(1)
+        targs.device = str(n)
+        pool.apply_async(train_manager, args=(targs, event,))
+        sleep(2)
+
+    pool.close()
+    pool.join()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
@@ -75,6 +91,7 @@ if __name__ == '__main__':
     )
     parser.add_argument('--conf', '-c', default='')
     parser.add_argument('--n_device', '-nd', type=int, default=1)
+    parser.add_argument('--n_models', '-nm', type=int, default=1)
     parser.add_argument('--device', '-d', default='0')
     args = parser.parse_args()
 
