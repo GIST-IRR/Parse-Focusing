@@ -60,8 +60,6 @@ def train(args2):
         print("log directory have been deleted.")
 
 def train_manager(args, event):
-    while event.is_set():
-        event.wait(1)
     event.set()
     train(args)
     event.clear()
@@ -80,7 +78,9 @@ def multi_train(args):
         targs = copy.copy(args)
         targs.device = str(n)
         pool.apply_async(train_manager, args=(targs, event,))
-        sleep(2)
+        sleep(3) # to avoid conflict between processes
+        while all([e.is_set() for e in events]):
+            sleep(1)
 
     pool.close()
     pool.join()

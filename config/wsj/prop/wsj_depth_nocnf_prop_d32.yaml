@@ -33,6 +33,7 @@ train:
   clip: 3
   init_depth: 96
   min_depth: 32
+  depth_curriculum: 'linear'
 
 
 test:
