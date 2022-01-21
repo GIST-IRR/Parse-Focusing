@@ -78,7 +78,7 @@ def multi_train(args):
         targs = copy.copy(args)
         targs.device = str(n)
         pool.apply_async(train_manager, args=(targs, event,))
-        sleep(3) # to avoid conflict between processes
+        sleep(5) # to avoid conflict between processes
         while all([e.is_set() for e in events]):
             sleep(1)
 
