@@ -59,6 +59,8 @@ class Train(CMD):
                         depth = train_arg.init_depth - ((train_arg.init_depth - train_arg.min_depth)//5)*(epoch-2)
                     elif train_arg.depth_curriculum == 'exp':
                         depth = int(train_arg.init_depth/math.sqrt(epoch-1))
+                    elif train_arg.depth_curriculum == 'fix':
+                        depth = train_arg.min_depth
                     depth = max(train_arg.min_depth, depth)
                     self.model.update_depth(depth)
                     log.info(f'GIL Depth: {depth}')

@@ -4,6 +4,7 @@ import pickle
 
 import os
 import logging
+import copy
 
 
 def get_trees(file):
@@ -24,7 +25,7 @@ def get_cnf_trees(file):
     return trees
 
 def trees_to_cnf(trees, horzMarkov=0, vertMarkov=1):
-    trees = trees.copy()
+    trees = copy.deepcopy(trees)
     for t in trees:
         t.chomsky_normal_form(horzMarkov=horzMarkov, vertMarkov=vertMarkov)
     return trees
@@ -102,9 +103,9 @@ def redistribution(args):
     def length(tree):
         return len(tree.leaves())
     def cnf_depth(tree):
-        tree = tree.copy()
-        tree.chomsky_normal_form()
-        return tree.height()
+        t = copy.deepcopy(tree)
+        t.chomsky_normal_form()
+        return t.height()
 
     # Check splitting criterion
     if args.criterion != 'standard':
