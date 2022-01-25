@@ -25,7 +25,6 @@ def get_cnf_trees(file):
     return trees
 
 def trees_to_cnf(trees, horzMarkov=0, vertMarkov=1):
-    trees = copy.deepcopy(trees)
     for t in trees:
         t.chomsky_normal_form(horzMarkov=horzMarkov, vertMarkov=vertMarkov)
     return trees
@@ -63,20 +62,29 @@ def create_dataset(file_name):
             'pos': pos_array,
             'gold_tree':gold_trees}
 
-def create_dataset_from_trees(trees):
+def create_dataset_from_trees(trees, depth=False):
     word_array = []
     pos_array = []
     gold_trees = []
+    depth_array = []
     for tree in trees:
         token = tree.pos()
         word, pos = zip(*token)
         word_array.append(word)
         pos_array.append(pos)
         gold_trees.append(factorize(tree))
+        if depth:
+            depth_array.append(tree.height())
 
-    return {'word': word_array,
-            'pos': pos_array,
-            'gold_tree': gold_trees}
+    if depth:
+        return {'word': word_array,
+                'pos': pos_array,
+                'gold_tree': gold_trees,
+                'depth': depth_array}
+    else:
+        return {'word': word_array,
+                'pos': pos_array,
+                'gold_tree': gold_trees}
 
 def redistribution(args):
     # Get path for the dataset
@@ -152,15 +160,15 @@ def redistribution(args):
         print('DONE.')
 
     print('[INFO] Saving dataset...', end='')
-    result = create_dataset_from_trees(train_trees)
+    result = create_dataset_from_trees(train_trees, depth=args.target_depth)
     with open(os.path.join(args.cache_path, f"{args.prefix}-{args.criterion}-train.pkl"), "wb") as f:
         pickle.dump(result, f)
 
-    result = create_dataset_from_trees(valid_trees)
+    result = create_dataset_from_trees(valid_trees, depth=args.target_depth)
     with open(os.path.join(args.cache_path, f"{args.prefix}-{args.criterion}-valid.pkl"), "wb") as f:
         pickle.dump(result, f)
 
-    result = create_dataset_from_trees(test_trees)
+    result = create_dataset_from_trees(test_trees, depth=args.target_depth)
     with open(os.path.join(args.cache_path, f"{args.prefix}-{args.criterion}-test.pkl"), "wb") as f:
         pickle.dump(result, f)
     print('DONE.')
@@ -177,6 +185,7 @@ if __name__ == '__main__':
     parser.add_argument('--cache_path', default='data/')
     parser.add_argument('--criterion', default='standard', choices=['standard', 'depth', 'length', 'cnf-depth'])
     parser.add_argument('--cnf', action='store_true', default=False)
+    parser.add_argument('--target_depth', action='store_true', default=False)
     args = parser.parse_args()
 
     redistribution(args)

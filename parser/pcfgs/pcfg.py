@@ -133,6 +133,4 @@ class PCFG(PCFG_base):
                 t = torch.clamp(t, min=0, max=1)
 
         r = torch.matmul(torch.exp(root_score).unsqueeze(1), t) + eps
-        r = torch.log(r)
-
         return r.squeeze()

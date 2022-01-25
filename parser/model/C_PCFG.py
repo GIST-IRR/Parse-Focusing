@@ -146,6 +146,7 @@ class CompoundPCFG(nn.Module):
         # Partition function
         if self.depth > 0:
             pf = self.pcfg._partition_function(rules=rules, depth=self.depth)
+            pf = torch.log(pf)
             result['partition'] = result['partition'] - pf
 
         loss =  (-result['partition'] + rules['kl']).mean()
@@ -161,5 +162,9 @@ class CompoundPCFG(nn.Module):
         else:
             raise NotImplementedError
 
+        if self.depth > 0:
+            pf = self.pcfg._partition_function(rules=rules, depth=self.depth)
+            result['depth'] = pf
+            
         result['partition'] -= rules['kl']
         return result

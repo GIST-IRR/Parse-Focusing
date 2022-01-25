@@ -32,11 +32,22 @@ class UF1(Metric):
         self.tp = 0.0
         self.fp = 0.0
         self.fn = 0.0
+        self.depth_n = {}
+        self.depth_f1 = {}
+        self.z = 0.0
         self.device = device
 
 
-    def __call__(self, preds, golds):
-        for pred, gold in zip(preds, golds):
+    def __call__(self, preds, golds, depth=None):
+        if depth:
+            zipped = zip(preds, golds, depth)
+        else:
+            zipped = zip(preds, golds)
+        for e in zipped:
+            if depth:
+                pred, gold, d = e
+            else: 
+                pred, gold = e
             # in the case of sentence length=1
             if len(pred) == 0:
                 continue
@@ -75,6 +86,13 @@ class UF1(Metric):
             f1 = 2 * prec * reca / (prec + reca + 1e-8)
             self.f1 += f1
             self.n += 1
+            if depth:
+                if d in self.depth_f1:
+                    self.depth_f1[d] += f1
+                    self.depth_n[d] += 1
+                else:
+                    self.depth_f1[d] = f1
+                    self.depth_n[d] = 1
 
     @property
     def sentence_uf1(self):
@@ -89,6 +107,17 @@ class UF1(Metric):
         recall = self.tp / (self.tp + self.fn)
         corpus_f1 = 2 * prec * recall / (prec + recall) if prec + recall > 0 else 0.
         return corpus_f1
+
+    @property
+    def sentence_uf1_d(self):
+        result = {}
+        for d, f1 in self.depth_f1.items():
+            result[d] = f1 / self.depth_n[d]
+        return result
+
+    @property
+    def partition_number(self):
+        return self.z / self.n
 
     @property
     def score(self):

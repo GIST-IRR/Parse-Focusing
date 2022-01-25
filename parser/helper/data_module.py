@@ -49,6 +49,16 @@ class DataModule():
         val_dataset.add_seq_len(field_name="word", new_field_name="seq_len")
         test_dataset.add_seq_len(field_name="word", new_field_name="seq_len")
 
+        try:
+            train_dataset.add_field("depth", train_data['depth'],padder=None,ignore_type=True)
+            val_dataset.add_field("depth", val_data['depth'],padder=None,ignore_type=True)
+            test_dataset.add_field("depth", test_data['depth'],padder=None,ignore_type=True)
+            train_dataset.set_target("depth")
+            val_dataset.set_target("depth")
+            test_dataset.set_target("depth")
+        except:
+            print('No depth')
+            pass
 
         def clean_word(words):
             import re
