@@ -10,6 +10,8 @@ from parser.helper.util import *
 from parser.helper.data_module import DataModule
 from pathlib import Path
 
+from torch.utils.tensorboard import SummaryWriter
+
 import math
 
 class Train(CMD):
@@ -35,11 +37,17 @@ class Train(CMD):
         log.info(args)
         eval_loader = dataset.val_dataloader
 
+        self.writer = SummaryWriter(args.save_dir)
+
         '''
         Training
         '''
         train_arg = args.train
         self.train_arg = train_arg
+        
+        # Check total iteration
+        self.iter = 0
+        self.pf = []
 
         for epoch in range(1, train_arg.max_epoch + 1):
             '''
@@ -55,15 +63,15 @@ class Train(CMD):
             # depth curriculum
             if epoch > 1:
                 if hasattr(train_arg, 'init_depth') and train_arg.init_depth > 0:
-                    if train_arg.depth_curriculum == 'linear':
-                        depth = train_arg.init_depth - ((train_arg.init_depth - train_arg.min_depth)//5)*(epoch-2)
-                    elif train_arg.depth_curriculum == 'exp':
-                        depth = int(train_arg.init_depth/math.sqrt(epoch-1))
-                    elif train_arg.depth_curriculum == 'fix':
-                        depth = train_arg.min_depth
-                    depth = max(train_arg.min_depth, depth)
-                    self.model.update_depth(depth)
-                    log.info(f'GIL Depth: {depth}')
+                    # if train_arg.depth_curriculum == 'linear':
+                    #     depth = train_arg.init_depth - ((train_arg.init_depth - train_arg.min_depth)//5)*(epoch-2)
+                    # elif train_arg.depth_curriculum == 'exp':
+                    #     depth = int(train_arg.init_depth/math.sqrt(epoch-1))
+                    # elif train_arg.depth_curriculum == 'fix':
+                    #     depth = train_arg.min_depth
+                    # depth = max(train_arg.min_depth, depth)
+                    # self.model.update_depth(depth)
+                    log.info(f'GIL Depth: {self.model.depth}')
 
             train_loader_autodevice = DataPrefetcher(train_loader, device=self.device)
             eval_loader_autodevice = DataPrefetcher(eval_loader, device=self.device)

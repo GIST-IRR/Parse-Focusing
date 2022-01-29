@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, OrderedDict
 import torch
 
 
@@ -110,6 +110,7 @@ class UF1(Metric):
 
     @property
     def sentence_uf1_d(self):
+        self.depth_f1 = dict(sorted(self.depth_f1.items()))
         result = {}
         for d, f1 in self.depth_f1.items():
             result[d] = f1 / self.depth_n[d]

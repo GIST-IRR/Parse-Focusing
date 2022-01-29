@@ -2,7 +2,6 @@
 
 
 from parser.cmds.cmd import CMD
-import torch
 
 from datetime import datetime, timedelta
 from parser.cmds.cmd import CMD
@@ -13,6 +12,8 @@ import numpy as np
 from parser.helper.util import *
 from parser.helper.data_module import DataModule
 import click
+
+from torch.utils.tensorboard import SummaryWriter
 
 class Evaluate(CMD):
 
@@ -27,6 +28,9 @@ class Evaluate(CMD):
         best_model_path = self.args.load_from_dir + "/best.pt"
         self.model.load_state_dict(torch.load(str(best_model_path)))
         print('successfully load')
+
+        self.writer = SummaryWriter(self.args.load_from_dir)
+        self.iter = 0
 
         test_loader = dataset.test_dataloader
         test_loader_autodevice = DataPrefetcher(test_loader, device=self.device)

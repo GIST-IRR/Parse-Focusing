@@ -145,9 +145,8 @@ class CompoundPCFG(nn.Module):
         result =  self.pcfg._inside(rules=rules, lens=input['seq_len'])
         # Partition function
         if self.depth > 0:
-            pf = self.pcfg._partition_function(rules=rules, depth=self.depth)
-            pf = torch.log(pf)
-            result['partition'] = result['partition'] - pf
+            self.pf = self.pcfg._partition_function(rules=rules, depth=self.depth)
+            result['partition'] = result['partition'] - self.pf
 
         loss =  (-result['partition'] + rules['kl']).mean()
         return loss
@@ -163,8 +162,15 @@ class CompoundPCFG(nn.Module):
             raise NotImplementedError
 
         if self.depth > 0:
-            pf = self.pcfg._partition_function(rules=rules, depth=self.depth)
-            result['depth'] = pf
+            pf = []
+            for d in range(3, self.depth + 1):
+                p = self.pcfg._partition_function(rules=rules, depth=d).unsqueeze(1).exp()
+                if d == 3:
+                    pf.append(p)
+                else:
+                    pf.append(p - pp)
+                pp = p
+            result['depth'] = torch.cat(pf, dim=1)
             
         result['partition'] -= rules['kl']
         return result
