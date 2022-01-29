@@ -1,11 +1,11 @@
-device: 3
+device: 0
 save_dir : 'log'
 # seed: 3435
 
 data:
-  train_file: 'data/data.redist/english-depth-train.pkl'
-  val_file: 'data/data.redist/english-depth-valid.pkl'
-  test_file: 'data/data.redist/english-depth-test.pkl'
+  train_file: 'data/cnf-depth.nocnf/english-cnf-depth-train.pkl'
+  val_file: 'data/cnf-depth.nocnf/english-cnf-depth-valid.pkl'
+  test_file: 'data/cnf-depth.nocnf/english-cnf-depth-test.pkl'
   vocab_type: 'max_size'
   vocab_size: 10000
   min_freq: 2
@@ -20,7 +20,6 @@ model:
   h_dim: 512
   z_dim: 64
   depth: 0
-  # fix_root: True
 
 train:
   batch_size: 4
@@ -32,8 +31,10 @@ train:
   increment: 1
   patience: 5
   clip: 3
-  init_depth: 50
-  min_depth: 16
+  init_depth: 30
+  min_depth: 20
+  depth_curriculum: 'linear'
+  warmup: 20000
 
 
 test:

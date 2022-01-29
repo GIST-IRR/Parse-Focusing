@@ -3,9 +3,9 @@ save_dir : 'log'
 # seed: 3435
 
 data:
-  train_file: 'data/cnf_depth.nocnf/english-cnf-depth-train.pkl'
-  val_file: 'data/cnf_depth.nocnf/english-cnf-depth-valid.pkl'
-  test_file: 'data/cnf_depth.nocnf/english-cnf-depth-test.pkl'
+  train_file: 'data/cnf-depth.nocnf/english-cnf-depth-train.pkl'
+  val_file: 'data/cnf-depth.nocnf/english-cnf-depth-valid.pkl'
+  test_file: 'data/cnf-depth.nocnf/english-cnf-depth-test.pkl'
   vocab_type: 'max_size'
   vocab_size: 10000
   min_freq: 2
