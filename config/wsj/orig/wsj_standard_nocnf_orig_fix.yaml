@@ -1,11 +1,11 @@
-device: 0
+device: 2
 save_dir : 'log'
 # seed: 3435
 
 data:
-  train_file: 'data/cnf-depth.cnf/english-cnf-depth-train.pkl'
-  val_file: 'data/cnf-depth.cnf/english-cnf-depth-valid.pkl'
-  test_file: 'data/cnf-depth.cnf/english-cnf-depth-test.pkl'
+  train_file: 'data/standard.nocnf/english-standard-train.pkl'
+  val_file: 'data/standard.nocnf/english-standard-valid.pkl'
+  test_file: 'data/standard.nocnf/english-standard-test.pkl'
   vocab_type: 'max_size'
   vocab_size: 10000
   min_freq: 2
@@ -20,6 +20,8 @@ model:
   h_dim: 512
   z_dim: 64
   depth: 0
+  fix_root: True
+  fix_term: True
 
 train:
   batch_size: 4
