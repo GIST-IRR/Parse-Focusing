@@ -79,7 +79,6 @@ class PCFG(PCFG_base):
                 diagonal_copy_(s, Xyz(Y_term, Z_term, X_y_z) + span_indicator[:, torch.arange(n), torch.arange(n) + w].unsqueeze(-1), w)
                 continue
 
-            n = N - w
             x = terms.new_zeros(3, batch, n, NT).fill_(-1e9)
 
             Y = stripe(s, n, w - 1, (0, 1)).clone()
@@ -109,12 +108,12 @@ class PCFG(PCFG_base):
         terms = rules['unary']
         rule_score = rules['rule']
         root_score = rules['root']
-        batch_size, N= rule_score.shape[:2]
+        batch_size, N = rule_score.shape[:2]
         T = terms.shape[2]
 
         rule_score = rule_score.reshape(batch_size, N, -1)
-        bias = torch.ones(batch_size, T).cuda()
-        t = torch.zeros(batch_size, N, 1).cuda()
+        bias = torch.ones(batch_size, T).log().cuda()
+        t = torch.zeros(batch_size, N, 1).log().cuda()
 
         if depth <= 2:
             t = t.view(batch_size, -1)
@@ -124,13 +123,10 @@ class PCFG(PCFG_base):
                 t = t.view(batch_size, -1) 
                 t = torch.cat((t, bias), 1)
 
-                tmp = []
-                for b in range(batch_size):
-                    tmp.append(torch.outer(t[b], t[b]).view(-1).unsqueeze(0))
-                t = torch.cat(tmp).unsqueeze(2)
+                t = (t[:, :, None] + t[:, None, :]).reshape(batch_size, -1)
 
-                t = torch.matmul(torch.exp(rule_score), t)
-                t = torch.clamp(t, min=0, max=1)
+                t = torch.logsumexp(rule_score + t[:, None, :], dim=2, keepdim=True)
+                t = torch.clamp(t, max=0)
 
-        r = torch.matmul(torch.exp(root_score).unsqueeze(1), t) + eps
-        return r.squeeze()
+        r = torch.logsumexp(root_score + t.squeeze(), dim=1, keepdim=True)
+        return r.squeeze(1)
