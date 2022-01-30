@@ -61,8 +61,8 @@ class Train(CMD):
                 train_loader = dataset.train_dataloader(max_len=train_arg.max_len)
 
             # depth curriculum
-            if epoch > 1:
-                if hasattr(train_arg, 'init_depth') and train_arg.init_depth > 0:
+            # if epoch > 1:
+            #     if hasattr(train_arg, 'init_depth') and train_arg.init_depth > 0:
                     # if train_arg.depth_curriculum == 'linear':
                     #     depth = train_arg.init_depth - ((train_arg.init_depth - train_arg.min_depth)//5)*(epoch-2)
                     # elif train_arg.depth_curriculum == 'exp':
@@ -71,7 +71,10 @@ class Train(CMD):
                     #     depth = train_arg.min_depth
                     # depth = max(train_arg.min_depth, depth)
                     # self.model.update_depth(depth)
-                    log.info(f'GIL Depth: {self.model.depth}')
+                    # log.info(f'GIL Depth: {self.model.depth}')
+
+            print_depth = self.model.depth if hasattr(self.model, 'depth') or self.model.depth == 0 else 'Not estimate.'
+            log.info(f'GIL Depth: {print_depth}')
 
             train_loader_autodevice = DataPrefetcher(train_loader, device=self.device)
             eval_loader_autodevice = DataPrefetcher(eval_loader, device=self.device)
@@ -83,6 +86,11 @@ class Train(CMD):
             dev_f1_metric, dev_ll = self.evaluate(eval_loader_autodevice)
             log.info(f"{'dev f1:':6}   {dev_f1_metric}")
             log.info(f"{'dev ll:':6}   {dev_ll}")
+            self.writer.add_scalar('valid/F1', dev_f1_metric.sentence_uf1, epoch)
+            for i, pf in enumerate(self.pf_sum):
+                self.writer.add_scalar('valid/partition_function', pf/dev_f1_metric.n, i)
+            for k, v in dev_f1_metric.sentence_uf1_d.items():
+                self.writer.add_scalar('valid/f1_depth', v, k)
 
             t = datetime.now() - start
 
@@ -101,3 +109,6 @@ class Train(CMD):
             total_time += t
             if train_arg.patience > 0 and epoch - best_e >= train_arg.patience:
                 break
+        
+        self.writer.flush()
+        self.writer.close()

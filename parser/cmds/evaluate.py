@@ -30,7 +30,6 @@ class Evaluate(CMD):
         print('successfully load')
 
         self.writer = SummaryWriter(self.args.load_from_dir)
-        self.iter = 0
 
         test_loader = dataset.test_dataloader
         test_loader_autodevice = DataPrefetcher(test_loader, device=self.device)
@@ -41,6 +40,15 @@ class Evaluate(CMD):
             print(metric_uas)
         print(metric_f1)
         print(likelihood)
+
+        for i, pf in enumerate(self.pf_sum):
+            self.writer.add_scalar('test/partition_number', pf/metric_f1.n, i)
+        for k, v in metric_f1.sentence_uf1_d.items():
+            self.writer.add_scalar('test/f1_depth', v, k)
+
+        self.writer.flush()
+        self.writer.close()
+        
         # Add for logging
         import csv
         log_file = os.path.join(os.path.dirname(args.load_from_dir), 'test.log')

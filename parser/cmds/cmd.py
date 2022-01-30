@@ -61,25 +61,20 @@ class CMD(object):
         print('decoding mode:{}'.format(decode_type))
         print('evaluate_dep:{}'.format(eval_dep))
         # rules = [] # debugging
-        if not hasattr(self.model, 'depth'):
+        if not hasattr(self.model, 'depth') or self.model.depth == 0:
             self.model.depth = 30
-        pf_sum = torch.zeros(self.model.depth)
+        self.pf_sum = torch.zeros(self.model.depth-2)
         for x, y in t:
             result = model.evaluate(x, decode_type=decode_type, eval_dep=eval_dep)
-            if hasattr(y, 'depth') > 0:
+            if 'depth' in y:
                 metric_f1(result['prediction'], y['gold_tree'], y['depth'])
             else:
                 metric_f1(result['prediction'], y['gold_tree'])
-            pf_sum = pf_sum + torch.sum(result['depth'], dim=0).detach().cpu()
+            self.pf_sum = self.pf_sum + torch.sum(result['depth'], dim=0).detach().cpu()
             metric_ll(result['partition'], x['seq_len'])
             # rules.append(result['rules']) # debugging
             if eval_dep:
                 metric_uas(result['prediction_arc'], y['head'])
-            self.iter += 1
-        for i, pf in enumerate(pf_sum):
-            self.writer.add_scalar('test/pf', pf/metric_f1.n, i)
-        for k, v in metric_f1.sentence_uf1_d.items():
-            self.writer.add_scalar('test/f1_depth', v, k)
         # with open('prop_debug_1.pkl', 'wb') as f:
         #     pickle.dump(rules, f)
         if not eval_dep:
