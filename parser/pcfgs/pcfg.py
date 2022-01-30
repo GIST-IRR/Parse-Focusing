@@ -108,18 +108,21 @@ class PCFG(PCFG_base):
         terms = rules['unary']
         rule_score = rules['rule']
         root_score = rules['root']
-        batch_size, N = rule_score.shape[:2]
-        T = terms.shape[2]
+        batch_size, N, NT_T, _ = rule_score.shape
+        T = NT_T - N
 
         rule_score = rule_score.reshape(batch_size, N, -1)
         bias = torch.ones(batch_size, T).log().cuda()
         t = torch.zeros(batch_size, N, 1).log().cuda()
 
+        # in case of sentence depth: NT - T - w (minimum depth 3)
+        # in case of parse tree depth: S - NT - T (minimum depth 3)
+        # so we can not get any probability for the smaller depth than 3
+        # the partition number depth is based on parse tree depth
         if depth <= 2:
             t = t.view(batch_size, -1)
-            t = torch.cat((t, bias), 1)
         else:
-            for _ in range(depth):
+            for _ in range(depth - 2):
                 t = t.view(batch_size, -1) 
                 t = torch.cat((t, bias), 1)
 
