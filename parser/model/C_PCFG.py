@@ -163,9 +163,9 @@ class CompoundPCFG(nn.Module):
 
         if self.depth > 0:
             pf = []
-            for d in range(3, self.depth + 1):
+            for d in range(self.depth + 1):
                 p = self.pcfg._partition_function(rules=rules, depth=d).unsqueeze(1).exp()
-                if d == 3:
+                if d == 0:
                     pf.append(p)
                 else:
                     pf.append(p - pp)

@@ -63,7 +63,7 @@ class CMD(object):
         # rules = [] # debugging
         if not hasattr(self.model, 'depth') or self.model.depth == 0:
             self.model.depth = 30
-        self.pf_sum = torch.zeros(self.model.depth-2)
+        self.pf_sum = torch.zeros(self.model.depth + 1)
         for x, y in t:
             result = model.evaluate(x, decode_type=decode_type, eval_dep=eval_dep)
             if 'depth' in y:
