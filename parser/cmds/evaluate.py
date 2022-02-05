@@ -23,7 +23,9 @@ class Evaluate(CMD):
         self.args = args
         dataset = DataModule(args)
         self.model = get_model(args.model, dataset)
-        if hasattr(args.train, 'min_depth'):
+        if hasattr(args.test, 'depth'):
+            self.model.depth = args.test.depth
+        elif hasattr(args.train, 'min_depth'):
             self.model.depth = args.train.min_depth
         best_model_path = self.args.load_from_dir + "/best.pt"
         self.model.load_state_dict(torch.load(str(best_model_path)))
