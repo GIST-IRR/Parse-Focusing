@@ -3,10 +3,13 @@ from collections import OrderedDict
 from torch.utils.tensorboard import SummaryWriter
 
 data_dir = 'data'
-data_type = 'chinese.standard.nocnf'
+lang = 'german'
+split = 'standard'
+form = 'nocnf'
+data_type = f'{lang}.{split}.{form}'
 # data_type = 'data.clean'
-data_split = 'test'
-data_name = f'{data_dir}/{data_type}/chinese-standard-{data_split}.pkl'
+data_split = 'train'
+data_name = f'{data_dir}/{data_type}/{lang}-{split}-{data_split}.pkl'
 # data_name = f'{data_dir}/{data_type}/chinese-{data_split}.pkl'
 with open(data_name, 'rb') as f:
     dataset = pickle.load(f)
