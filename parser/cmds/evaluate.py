@@ -48,6 +48,10 @@ class Evaluate(CMD):
         for k, v in metric_f1.sentence_uf1_d.items():
             self.writer.add_scalar('test/f1_depth', v, k)
 
+        self.span_depth = dict(sorted(self.span_depth.items()))
+        for k, v in self.span_depth.items():
+            self.writer.add_scalar('test/span_depth', v/metric_f1.n, k)
+
         self.writer.flush()
         self.writer.close()
         

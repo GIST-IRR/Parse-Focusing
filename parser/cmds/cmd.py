@@ -7,6 +7,8 @@ from parser.helper.metric import LikelihoodMetric,  UF1, LossMetric, UAS
 
 import math
 
+from utils import depth_from_span
+
 class CMD(object):
     def __call__(self, args):
         self.args = args
@@ -64,8 +66,17 @@ class CMD(object):
         if not hasattr(self.model, 'depth') or self.model.depth == 0:
             self.model.depth = 30
         self.pf_sum = torch.zeros(self.model.depth + 1)
+        self.span_depth = {}
         for x, y in t:
             result = model.evaluate(x, decode_type=decode_type, eval_dep=eval_dep)
+            
+            s_depth = [depth_from_span(r) for r in result['prediction']]
+            for d in s_depth:
+                if d in self.span_depth:
+                    self.span_depth[d] += 1
+                else:
+                    self.span_depth[d] = 1
+
             if 'depth' in y:
                 metric_f1(result['prediction'], y['gold_tree'], y['depth'])
             else:

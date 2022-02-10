@@ -91,6 +91,9 @@ class Train(CMD):
                 self.writer.add_scalar('valid/partition_function', pf/dev_f1_metric.n, i)
             for k, v in dev_f1_metric.sentence_uf1_d.items():
                 self.writer.add_scalar('valid/f1_depth', v, k)
+            self.span_depth = dict(sorted(self.span_depth.items()))
+            for k, v in self.span_depth.items():
+                self.writer.add_scalar('valid/span_depth', v/dev_f1_metric.n, k)
 
             t = datetime.now() - start
 
