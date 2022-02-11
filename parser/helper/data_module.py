@@ -49,6 +49,7 @@ class DataModule():
         val_dataset.add_seq_len(field_name="word", new_field_name="seq_len")
         test_dataset.add_seq_len(field_name="word", new_field_name="seq_len")
 
+        # Depth of trees
         try:
             train_dataset.add_field("depth", train_data['depth'],padder=None,ignore_type=True)
             val_dataset.add_field("depth", val_data['depth'],padder=None,ignore_type=True)
@@ -58,6 +59,18 @@ class DataModule():
             test_dataset.set_target("depth")
         except:
             print('No depth')
+            pass
+
+        # POS tag of gold trees
+        try:
+            train_dataset.add_field("pos", train_data['pos'],padder=None,ignore_type=True)
+            val_dataset.add_field("pos", val_data['pos'],padder=None,ignore_type=True)
+            test_dataset.add_field("pos", test_data['pos'],padder=None,ignore_type=True)
+            train_dataset.set_target("pos")
+            val_dataset.set_target("pos")
+            test_dataset.set_target("pos")
+        except:
+            print('No pos')
             pass
 
         def clean_word(words):

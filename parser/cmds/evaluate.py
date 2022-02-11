@@ -43,6 +43,7 @@ class Evaluate(CMD):
         print(metric_f1)
         print(likelihood)
 
+        # Log - Tensorboard
         for i, pf in enumerate(self.pf_sum):
             self.writer.add_scalar('test/partition_number', pf/metric_f1.n, i)
         for k, v in metric_f1.sentence_uf1_d.items():
@@ -55,9 +56,19 @@ class Evaluate(CMD):
         self.writer.flush()
         self.writer.close()
         
-        # Add for logging
+        # Log - CSV
         import csv
-        log_file = os.path.join(os.path.dirname(args.load_from_dir), 'test.log')
+        nt_log = os.path.join(self.args.load_from_dir, 'label_recall.csv')
+        nt_label = ['SBAR', 'NP', 'VP', 'PP', 'ADJP', 'ADVP']
+        with open(nt_log, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(nt_label)
+            writer.writerow([metric_f1.label_recall[l] for l in nt_label])
+
+        log_file = os.path.join(os.path.dirname(args.load_from_dir), 'test.csv')
         with open(log_file, 'a', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow([args.load_from_dir, metric_f1.sentence_uf1, metric_f1.corpus_uf1, likelihood.avg_likelihood.item(), likelihood.perplexity.item()])
+            writer.writerow([
+                args.load_from_dir, metric_f1.sentence_uf1, metric_f1.corpus_uf1,
+                likelihood.avg_likelihood.item(), likelihood.perplexity.item()
+            ])

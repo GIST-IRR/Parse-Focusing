@@ -34,11 +34,13 @@ class UF1(Metric):
         self.fn = 0.0
         self.depth_n = {}
         self.depth_f1 = {}
+        self.nt_tp = {}
+        self.nt_fn = {}
         self.z = 0.0
         self.device = device
 
 
-    def __call__(self, preds, golds, depth=None):
+    def __call__(self, preds, golds, depth=None, nonterminal=False):
         if depth:
             zipped = zip(preds, golds, depth)
         else:
@@ -59,6 +61,8 @@ class UF1(Metric):
             gold = list(filter(lambda x: not (x[0]==0 and x[1]==length), gold))
             pred = list(filter(lambda x: not (x[0]==0 and x[1]==length), pred))
             #remove label.
+            if nonterminal:
+                label = [g[2] for g in gold]
             gold = [g[:2] for g in gold]
             pred = [p[:2] for p in pred]
             gold = list(map(tuple, gold))
@@ -66,11 +70,21 @@ class UF1(Metric):
             for span in pred:
                 if span in gold:
                     self.tp += 1
+                    l = label[gold.index(span)]
+                    if l in self.nt_tp:
+                        self.nt_tp[l] += 1
+                    else:
+                        self.nt_tp[l] = 1
                 else:
                     self.fp += 1
             for span in gold:
                 if span not in pred:
                     self.fn += 1
+                    l = label[gold.index(span)]
+                    if l in self.nt_fn:
+                        self.nt_fn[l] += 1
+                    else:
+                        self.nt_fn[l] = 1
 
             #sentence f1
             #remove duplicated span.
@@ -114,6 +128,14 @@ class UF1(Metric):
         result = {}
         for d, f1 in self.depth_f1.items():
             result[d] = f1 / self.depth_n[d]
+        return result
+
+    @property
+    def label_recall(self):
+        result = {}
+        for l, tp in self.nt_tp.items():
+            fn = self.nt_fn[l] if l in self.nt_fn else 0
+            result[l] = tp / (tp + fn)
         return result
 
     @property

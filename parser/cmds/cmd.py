@@ -62,7 +62,6 @@ class CMD(object):
         t = tqdm(loader, total=int(len(loader)),  position=0, leave=True)
         print('decoding mode:{}'.format(decode_type))
         print('evaluate_dep:{}'.format(eval_dep))
-        # rules = [] # debugging
         if not hasattr(self.model, 'depth') or self.model.depth == 0:
             self.model.depth = 30
         self.pf_sum = torch.zeros(self.model.depth + 1)
@@ -78,16 +77,13 @@ class CMD(object):
                     self.span_depth[d] = 1
 
             if 'depth' in y:
-                metric_f1(result['prediction'], y['gold_tree'], y['depth'])
+                metric_f1(result['prediction'], y['gold_tree'], y['depth'], nonterminal=True)
             else:
-                metric_f1(result['prediction'], y['gold_tree'])
+                metric_f1(result['prediction'], y['gold_tree'], nonterminal=True)
             self.pf_sum = self.pf_sum + torch.sum(result['depth'], dim=0).detach().cpu()
             metric_ll(result['partition'], x['seq_len'])
-            # rules.append(result['rules']) # debugging
             if eval_dep:
                 metric_uas(result['prediction_arc'], y['head'])
-        # with open('prop_debug_1.pkl', 'wb') as f:
-        #     pickle.dump(rules, f)
         if not eval_dep:
             return metric_f1, metric_ll
         else:
