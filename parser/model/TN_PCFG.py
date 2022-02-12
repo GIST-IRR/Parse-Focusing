@@ -82,7 +82,7 @@ class TNPCFG(nn.Module):
         result =  self.pcfg._inside(rules=rules, lens=input['seq_len'])
         # Partition function
         if self.depth > 0:
-            self.pf = self.pcfg._partition_function(rules=rules, depth=15)
+            self.pf = self.pcfg._partition_function(rules=rules, depth=self.depth)
             result['partition'] = result['partition'] - self.pf
 
         loss =  -result['partition'].mean()
