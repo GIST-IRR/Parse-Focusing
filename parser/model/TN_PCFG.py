@@ -15,6 +15,7 @@ class TNPCFG(nn.Module):
         self.s_dim = args.s_dim
         self.r = args.r_dim
         self.word_emb_size = args.word_emb_size
+        self.depth = args.depth
 
         ## root
         self.root_emb = nn.Parameter(torch.randn(1, self.s_dim))
@@ -36,6 +37,8 @@ class TNPCFG(nn.Module):
         self.left_mlp = nn.Sequential(nn.Linear(rule_dim,rule_dim), nn.ReLU(),nn.Linear(rule_dim,self.r))
         self.right_mlp = nn.Sequential(nn.Linear(rule_dim,rule_dim),nn.ReLU(),nn.Linear(rule_dim,self.r))
 
+    def update_depth(self, depth):
+        self.depth = depth
 
     def forward(self, input, **kwargs):
         x = input['word']
@@ -77,8 +80,13 @@ class TNPCFG(nn.Module):
     def loss(self, input):
         rules = self.forward(input)
         result =  self.pcfg._inside(rules=rules, lens=input['seq_len'])
-        logZ =  -result['partition'].mean()
-        return logZ
+        # Partition function
+        if self.depth > 0:
+            self.pf = self.pcfg._partition_function(rules=rules, depth=15)
+            result['partition'] = result['partition'] - self.pf
+
+        loss =  -result['partition'].mean()
+        return loss
 
 
     def evaluate(self, input, decode_type, **kwargs):
@@ -90,4 +98,3 @@ class TNPCFG(nn.Module):
             return self.pcfg.decode(rules=rules, lens=input['seq_len'], viterbi=False, mbr=True)
         else:
             raise NotImplementedError
-

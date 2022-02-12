@@ -109,3 +109,56 @@ class TDPCFG(PCFG_base):
                     "prediction" : self._get_prediction(logZ, span_indicator, lens, mbr=True),
                     "partition" : logZ
                     }
+    
+    def _compose(self, rules):
+        parent = rules['head']
+        left = rules['left']
+        right = rules['right']
+        b, nt, r = parent.shape
+        t = left.shape[1]
+        result = \
+            (parent.view(b, nt, 1, 1, r) \
+            + left.view(b, 1, t, 1, r) \
+            + right.view(b, 1, 1, t, r)).logsumexp(dim=-1)
+        return result
+
+    def t_partition_function(self, rules, depth):
+        composed = self._compose(rules)
+        rules = {
+            'root': rules['root'],
+            'rule': composed,
+            'unary': rules['unary']
+        }
+        return super()._partition_function(rules, depth)
+
+    @torch.enable_grad()
+    def _partition_function(self, rules, depth):
+        eps = 1e-8
+        terms = rules['unary']
+        root = rules['root']
+        H = rules['head']
+        L = rules['left']
+        R = rules['right']
+        batch_size, NT, r = H.shape
+        N = L.shape[1]
+        T = N - NT
+
+        bias = torch.zeros(batch_size, T).cuda()
+        t = torch.zeros(batch_size, NT).fill_(-1e9).cuda()
+
+        # in case of sentence depth: NT - T - w (minimum depth 3)
+        # in case of parse tree depth: S - NT - T (minimum depth 3)
+        # so we can not get any probability for the smaller depth than 3
+        # the partition number depth is based on parse tree depth
+        def logmatmul(x, y, dim=-1):
+            return (x + y).logsumexp(dim=dim)
+
+        if depth > 2:
+            for _ in range(depth - 2):
+                t = torch.cat((t, bias), 1)
+                t = logmatmul(L, t.unsqueeze(-1), dim=1) + logmatmul(R, t.unsqueeze(-1), dim=1)
+                t = logmatmul(H, t.unsqueeze(1))
+                t = torch.clamp(t, max=0)
+
+        r = torch.logsumexp(root + t.squeeze(), dim=1, keepdim=True)
+        return r.squeeze(1)
