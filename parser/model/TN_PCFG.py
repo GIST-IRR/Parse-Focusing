@@ -93,8 +93,20 @@ class TNPCFG(nn.Module):
         rules = self.forward(input)
         if decode_type == 'viterbi':
             assert NotImplementedError
-
         elif decode_type == 'mbr':
-            return self.pcfg.decode(rules=rules, lens=input['seq_len'], viterbi=False, mbr=True)
+            result = self.pcfg.decode(rules=rules, lens=input['seq_len'], viterbi=False, mbr=True)
         else:
             raise NotImplementedError
+
+        if self.depth > 0:
+            pf = []
+            for d in range(self.depth + 1):
+                p = self.pcfg._partition_function(rules=rules, depth=d).unsqueeze(1).exp()
+                if d == 0:
+                    pf.append(p)
+                else:
+                    pf.append(p - pp)
+                pp = p
+            result['depth'] = torch.cat(pf, dim=1)
+
+        return result
