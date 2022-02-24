@@ -124,23 +124,34 @@ class NeuralLPCFG(nn.Module):
         result =  self.pcfg.loss(rules, input['seq_len'])
         # Partition function
         if self.depth > 0:
-            pf = self.pcfg._partition_function(rules=rules, depth=self.depth)
-            result['partition'] = result['partition'] - pf
+            self.pf = self.pcfg._partition_function(rules=rules, depth=self.depth)
+            result['partition'] = result['partition'] - self.pf
             
         return -result['partition'].mean()
 
     def evaluate(self, input, decode_type='mbr', eval_dep=False):
         if decode_type == 'mbr':
             rules = self.forward(input)
-            return self.pcfg.decode(rules, input['seq_len'], mbr=True, eval_dep=eval_dep)
-
+            result = self.pcfg.decode(rules, input['seq_len'], mbr=True, eval_dep=eval_dep)
         else:
             rules = self.forward(input, eval_dep=True)
             result = EisnerSatta.viterbi_decoding(rule=rules['rule'], root=rules['root'],lens=input['seq_len'])
             rules = self.forward(input)
             logZ = self.pcfg.loss(rules, input['seq_len'])
             result.update(logZ)
-            return result
+
+        if self.depth > 0:
+            pf = []
+            for d in range(self.depth + 1):
+                p = self.pcfg._partition_function(rules=rules, depth=d).unsqueeze(1).exp()
+                if d == 0:
+                    pf.append(p)
+                else:
+                    pf.append(p - pp)
+                pp = p
+            result['depth'] = torch.cat(pf, dim=1)
+
+        return result
 
 
 
