@@ -1,0 +1,63 @@
+device: 0
+save_dir : 'log'
+
+data:
+  train_file: 'data/standard.nocnf/english-standard-train.pkl'
+  val_file: 'data/standard.nocnf/english-standard-valid.pkl'
+  test_file: 'data/standard.nocnf/english-standard-test.pkl'
+  use_cache: 0
+  cache: 0
+  vocab_cache: 'data/standard.nocnf/english-standard-vocab.pkl'
+  train_dataset_cache: 'data/standard.nocnf/english-standard-train-cache.pkl'
+  val_dataset_cache: 'data/standard.nocnf/english-standard-valid-cache.pkl'
+  test_dataset_cache: 'data/standard.nocnf/english-standard-test-cache.pkl'
+  vocab_type: 'max_size'
+  vocab_size: 10000
+  min_freq: 2
+
+model:
+  model_name: 'TNPCFG'
+  NT: 30
+  T: 60
+  r_dim: 500
+  s_dim: 256
+  word_emb_size: 200
+  shared: 0
+  depth: 0
+
+train:
+  batch_size: 4
+  max_epoch: 10
+  max_len: 40
+  #whether to use curriculum learning stragegy.
+  curriculum: 1
+  start_len: 30
+  increment: 10
+  patience: 5
+  clip: 3
+  init_depth: 45
+  min_depth: 15
+  depth_curriculum: 'linear'
+  warmup: 30000
+
+
+test:
+  batch_size: 8
+  max_tokens: 100
+  bucket: 32
+  # viterbi or mbr
+  decode: 'mbr'
+  # batch or token
+  sampler: 'batch'
+
+optimizer:
+  name: 'adam'
+  lr: 0.001
+  mu: 0.75
+  nu: 0.999
+
+
+
+
+
+
