@@ -17,17 +17,22 @@ class CMD(object):
         self.model.train()
         t = tqdm(loader, total=int(len(loader)),  position=0, leave=True)
         train_arg = self.args.train
+        total_loss = 0
         for x, _ in t:
-            if hasattr(train_arg, 'init_depth') and train_arg.init_depth > 0:
-                if train_arg.depth_curriculum == 'linear':
-                    depth = train_arg.init_depth - ((train_arg.init_depth - train_arg.min_depth)/train_arg.warmup)*(self.iter-2)
-                elif train_arg.depth_curriculum == 'exp':
-                    depth = train_arg.init_depth/math.sqrt(self.iter-1)
-                elif train_arg.depth_curriculum == 'fix':
-                    depth = train_arg.min_depth
-                depth = math.ceil(depth)
-                depth = max(train_arg.min_depth, depth)
-                self.model.update_depth(depth)
+            if self.model.mode == 'depth':
+                if hasattr(train_arg, 'init_depth') and train_arg.init_depth > 0:
+                    if train_arg.depth_curriculum == 'linear':
+                        depth = train_arg.init_depth - ((train_arg.init_depth - train_arg.min_depth)/train_arg.warmup)*(self.iter-2)
+                    elif train_arg.depth_curriculum == 'exp':
+                        depth = train_arg.init_depth/math.sqrt(self.iter-1)
+                    elif train_arg.depth_curriculum == 'fix':
+                        depth = train_arg.min_depth
+                    depth = math.ceil(depth)
+                    depth = max(train_arg.min_depth, depth)
+                    self.model.update_depth(depth)
+            elif self.model.mode == 'span':
+                if self.iter >= train_arg.warmup:
+                    self.model.update_span(True)
 
             self.optimizer.zero_grad()
             loss = self.model.loss(x)
@@ -37,10 +42,13 @@ class CMD(object):
                                      train_arg.clip)
             self.optimizer.step()
             # writer
+            total_loss += loss.item()
             if hasattr(self.model, 'pf'):
                 self.pf = self.pf + self.model.pf.detach().cpu().tolist() if self.model.pf.numel() != 1 else [self.model.pf.detach().cpu().tolist()]
-            if self.iter % 100 == 1:
+            if self.iter != 0 and self.iter % 100 == 0:
                 self.writer.add_scalar('train/depth', self.model.depth, self.iter)
+                self.writer.add_scalar('train/loss', total_loss/100, self.iter)
+                total_loss = 0
                 if hasattr(self.model, 'pf'):
                     self.writer.add_histogram('train/partition_number', self.model.pf.detach().cpu(), self.iter)
                     self.pf = []
@@ -62,9 +70,13 @@ class CMD(object):
         t = tqdm(loader, total=int(len(loader)),  position=0, leave=True)
         print('decoding mode:{}'.format(decode_type))
         print('evaluate_dep:{}'.format(eval_dep))
-        if not hasattr(self.model, 'depth') or self.model.depth == 0:
-            self.model.depth = 30
-        self.pf_sum = torch.zeros(self.model.depth + 1)
+
+        if not hasattr(self.model, 'depth') or self.model.depth <= 0:
+            depth = 30
+        else:
+            depth = self.model.depth
+
+        self.pf_sum = torch.zeros(depth + 1)
         self.span_depth = {}
         for x, y in t:
             result = model.evaluate(x, decode_type=decode_type, eval_dep=eval_dep)

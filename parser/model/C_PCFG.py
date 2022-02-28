@@ -45,7 +45,9 @@ class CompoundPCFG(nn.Module):
         self.NT_T = self.NT + self .T
         self.rule_mlp = nn.Linear(input_dim, (self.NT_T) ** 2)
         # Partition function
-        self.depth = args.depth
+        self.mode = args.mode if hasattr(args, 'mode') else None
+        self.depth = args.depth if hasattr(args, 'depth') else 0
+        self.span = args.span if hasattr(args, 'span') else False
 
         if hasattr(args, 'fix_root'):
             self.root_emb.requires_grad = True if args.fix_root else False
@@ -68,6 +70,9 @@ class CompoundPCFG(nn.Module):
 
     def update_depth(self, depth):
         self.depth = depth
+
+    def update_span(self, span: bool):
+        self.span = span
 
     def forward(self, input, evaluating=False):
         x = input['word']
@@ -144,8 +149,9 @@ class CompoundPCFG(nn.Module):
         rules = self.forward(input)
         result =  self.pcfg._inside(rules=rules, lens=input['seq_len'])
         # Partition function
-        if self.depth > 0:
-            self.pf = self.pcfg._partition_function(rules=rules, depth=self.depth)
+        if self.depth > 0 or self.span == True:
+            lens = self.depth if self.mode == 'depth' else input['seq_len']
+            self.pf = self.pcfg._partition_function(rules=rules, lens=lens, mode=self.mode)
             result['partition'] = result['partition'] - self.pf
 
         loss =  (-result['partition'] + rules['kl']).mean()
@@ -161,16 +167,15 @@ class CompoundPCFG(nn.Module):
         else:
             raise NotImplementedError
 
-        if self.depth > 0:
-            pf = []
-            for d in range(self.depth + 1):
-                p = self.pcfg._partition_function(rules=rules, depth=d).unsqueeze(1).exp()
-                if d == 0:
-                    pf.append(p)
-                else:
-                    pf.append(p - pp)
-                pp = p
-            result['depth'] = torch.cat(pf, dim=1)
+        if self.depth < 0:
+            depth = 30
+        else:
+            depth = self.depth
+
+        if depth > 0:
+            p = self.pcfg._partition_function(rules, depth, mode='depth', full=True).exp()
+            pp = torch.cat([p.new_zeros(p.shape[0], 1), p[:, :-1]], dim=1)
+            result['depth'] = p - pp
             
         result['partition'] -= rules['kl']
         return result

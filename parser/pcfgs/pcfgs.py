@@ -1,5 +1,5 @@
 import torch
-from parser.pcfgs.fn import  stripe, diagonal_copy_, diagonal
+from parser.pcfgs.fn import  stripe, diagonal_copy_, diagonal, checkpoint
 
 class PCFG_base():
 
@@ -137,33 +137,117 @@ class PCFG_base():
         return predicted_arc
 
     @torch.enable_grad()
-    def _partition_function(self, rules, depth):
-        eps = 1e-8
-        terms = rules['unary']
-        rule_score = rules['rule']
-        root_score = rules['root']
-        batch_size, N, NT_T, _ = rule_score.shape
+    def depth_partition_function(self, rules, depth, full=False):
+        rule = rules['rule']
+        root = rules['root']
+        batch, N, NT_T, _ = rule.shape
         T = NT_T - N
 
-        rule_score = rule_score.reshape(batch_size, N, -1)
-        bias = torch.ones(batch_size, T).log().cuda()
-        t = torch.zeros(batch_size, N, 1).log().cuda()
+        D = depth + 1
+        rule = rule.reshape(batch, N, -1)
+        bias = rule.new_zeros(batch, T)
+        t = rule.new_zeros(batch, D, N).fill_(-1e9)
 
         # in case of sentence depth: NT - T - w (minimum depth 3)
         # in case of parse tree depth: S - NT - T (minimum depth 3)
         # so we can not get any probability for the smaller depth than 3
         # the partition number depth is based on parse tree depth
-        if depth <= 2:
-            t = t.view(batch_size, -1)
+        for d in range(3, D):
+            z_prev = torch.cat((t[:, d - 1], bias), dim=1)
+            z = (z_prev[:, :, None] + z_prev[:, None, :]).reshape(batch, -1)
+            z = (rule + z[:, None, :]).logsumexp(2)
+            z = torch.clamp(z, max=0)
+            t[:, d].copy_(z)
+
+        if full:
+            r = (root.unsqueeze(1) + t).logsumexp(2)
         else:
-            for _ in range(depth - 2):
-                t = t.view(batch_size, -1) 
-                t = torch.cat((t, bias), 1)
+            r = (root + t[:, depth]).logsumexp(1)
+        return r
 
-                t = (t[:, :, None] + t[:, None, :]).reshape(batch_size, -1)
 
-                t = torch.logsumexp(rule_score + t[:, None, :], dim=2, keepdim=True)
-                t = torch.clamp(t, max=0)
+    @torch.enable_grad()
+    def span_partition_function(self, rules, lens, viterbi=False, mbr=False):
+        terms = rules['unary']
+        rule = rules['rule']
+        root = rules['root']
 
-        r = torch.logsumexp(root_score + t.squeeze(), dim=1, keepdim=True)
-        return r.squeeze(1)
+        batch, N, T = terms.shape
+        N += 1
+        NT = rule.shape[1]
+        S = NT + T
+
+        s = rule.new_zeros(batch, N, NT).fill_(-1e9)
+        NTs = slice(0, NT)
+        Ts = slice(NT, S)
+
+        X_Y_Z = rule[:, :, NTs, NTs].reshape(batch, NT, NT * NT)
+        X_y_Z = rule[:, :, Ts, NTs].reshape(batch, NT, NT * T)
+        X_Y_z = rule[:, :, NTs, Ts].reshape(batch, NT, NT * T)
+        X_y_z = rule[:, :, Ts, Ts].reshape(batch, NT, T * T)
+
+        span_indicator = rule.new_zeros(batch, N).requires_grad_(viterbi or mbr)
+
+        def contract(x, dim=-1):
+            if viterbi:
+                return x.max(dim)[0]
+            else:
+                return x.logsumexp(dim)
+
+        # nonterminals: X Y Z
+        # terminals: x y z
+        # XYZ: X->YZ  XYz: X->Yz  ...
+        @checkpoint
+        def Xyz(rule):
+            b_n_x = contract(rule)
+            return b_n_x
+
+        @checkpoint
+        def XYZ(Y, Z, rule):
+            w = Y.shape[1] - 1
+            b_n_yz = (Y[:, :-1, :, None] + Z[:, 1:, None, :]).reshape(batch, w, -1).logsumexp(1)
+            b_n_x = contract(b_n_yz.unsqueeze(-2) + rule)
+            return b_n_x
+
+        @checkpoint
+        def XYz(Y, rule):
+            Y = Y[:, -1, :, None]
+            b_n_yz = Y.expand(batch, NT, T).reshape(batch, NT * T)
+            b_n_x = contract(b_n_yz.unsqueeze(-2) + rule)
+            return b_n_x
+
+
+        @checkpoint
+        def XyZ(Z, rule):
+            Z = Z[:, 0, None, :]
+            b_n_yz = Z.expand(batch, T, NT).reshape(batch, NT * T)
+            b_n_x = contract(b_n_yz.unsqueeze(-2) + rule)
+            return b_n_x
+
+
+        for w in range(2, N):
+            if w == 2:
+                s[:, w].copy_(Xyz(X_y_z) + span_indicator[:, w].unsqueeze(-1))
+                continue
+
+            x = terms.new_zeros(3, batch, NT).fill_(-1e9)
+
+            Y = s[:, 2:w].clone()
+            Z = s[:, 2:w].flip(1).clone()
+
+            if w > 3:
+                x[0].copy_(XYZ(Y, Z, X_Y_Z))
+
+            x[1].copy_(XYz(Y, X_Y_z))
+            x[2].copy_(XyZ(Z, X_y_Z))
+
+            s[:, w].copy_(contract(x, dim=0) + span_indicator[:, w].unsqueeze(-1))
+
+        logZ = contract(s[torch.arange(batch), lens] + root)
+        return logZ
+
+    def _partition_function(self, rules, lens, mode='span', full=False):
+        if mode == 'depth':
+            return self.depth_partition_function(rules, lens, full)
+        elif mode == 'span':
+            return self.span_partition_function(rules, lens)

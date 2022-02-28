@@ -101,35 +101,3 @@ class PCFG(PCFG_base):
 
         else:
             return {'partition': logZ}
-
-    @torch.enable_grad()
-    def _partition_function(self, rules, depth):
-        eps = 1e-8
-        terms = rules['unary']
-        rule_score = rules['rule']
-        root_score = rules['root']
-        batch_size, N, NT_T, _ = rule_score.shape
-        T = NT_T - N
-
-        rule_score = rule_score.reshape(batch_size, N, -1)
-        bias = torch.ones(batch_size, T).log().cuda()
-        t = torch.zeros(batch_size, N, 1).log().cuda()
-
-        # in case of sentence depth: NT - T - w (minimum depth 3)
-        # in case of parse tree depth: S - NT - T (minimum depth 3)
-        # so we can not get any probability for the smaller depth than 3
-        # the partition number depth is based on parse tree depth
-        if depth <= 2:
-            t = t.view(batch_size, -1)
-        else:
-            for _ in range(depth - 2):
-                t = t.view(batch_size, -1) 
-                t = torch.cat((t, bias), 1)
-
-                t = (t[:, :, None] + t[:, None, :]).reshape(batch_size, -1)
-
-                t = torch.logsumexp(rule_score + t[:, None, :], dim=2, keepdim=True)
-                t = torch.clamp(t, max=0)
-
-        r = torch.logsumexp(root_score + t.squeeze(), dim=1, keepdim=True)
-        return r.squeeze(1)
