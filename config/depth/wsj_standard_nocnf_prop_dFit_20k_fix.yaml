@@ -3,9 +3,9 @@ save_dir : 'log'
 # seed: 3435
 
 data:
-  train_file: 'data/cnf_depth.nocnf/english-cnf-depth-train.pkl'
-  val_file: 'data/cnf_depth.nocnf/english-cnf-depth-valid.pkl'
-  test_file: 'data/cnf_depth.nocnf/english-cnf-depth-test.pkl'
+  train_file: 'data/standard.nocnf/english-standard-train.pkl'
+  val_file: 'data/standard.nocnf/english-standard-valid.pkl'
+  test_file: 'data/standard.nocnf/english-standard-test.pkl'
   vocab_type: 'max_size'
   vocab_size: 10000
   min_freq: 2
@@ -19,7 +19,10 @@ model:
   w_dim: 512
   h_dim: 512
   z_dim: 64
-  depth: 20
+  depth: 0
+  mode: 'depth'
+  fix_root: True
+  fix_term: True
 
 train:
   batch_size: 4
@@ -31,9 +34,10 @@ train:
   increment: 1
   patience: 5
   clip: 3
-  init_depth: 20
-  min_depth: 20
-  depth_curriculum: 'fix'
+  init_depth: 45
+  min_depth: 15
+  depth_curriculum: 'linear'
+  warmup: 20000
 
 
 test:

@@ -1,11 +1,11 @@
-device: 2
+device: 0
 save_dir : 'log'
 # seed: 3435
 
 data:
-  train_file: 'data/french.standard.nocnf/french-standard-train.pkl'
-  val_file: 'data/french.standard.nocnf/french-standard-valid.pkl'
-  test_file: 'data/french.standard.nocnf/french-standard-test.pkl'
+  train_file: 'data/standard.nocnf/english-standard-train.pkl'
+  val_file: 'data/standard.nocnf/english-standard-valid.pkl'
+  test_file: 'data/standard.nocnf/english-standard-test.pkl'
   vocab_type: 'max_size'
   vocab_size: 10000
   min_freq: 2
@@ -20,6 +20,7 @@ model:
   h_dim: 512
   z_dim: 64
   depth: 0
+  mode: 'depth'
 
 train:
   batch_size: 4
@@ -31,9 +32,10 @@ train:
   increment: 1
   patience: 5
   clip: 3
-  init_depth: 183
-  min_depth: 61
+  init_depth: 45
+  min_depth: 15
   depth_curriculum: 'linear'
+  warmup: 10000
 
 
 test:
