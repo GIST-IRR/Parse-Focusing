@@ -32,15 +32,20 @@ class UF1(Metric):
         self.tp = 0.0
         self.fp = 0.0
         self.fn = 0.0
+        self.ex = 0.0
         self.depth_n = {}
         self.depth_f1 = {}
+        self.depth_ex = {}
+        self.length_n = {}
+        self.length_f1 = {}
+        self.length_ex = {}
         self.nt_tp = {}
         self.nt_fn = {}
         self.z = 0.0
         self.device = device
 
 
-    def __call__(self, preds, golds, depth=None, nonterminal=False):
+    def __call__(self, preds, golds, depth=None, lens=False, nonterminal=False):
         if depth:
             zipped = zip(preds, golds, depth)
         else:
@@ -98,15 +103,28 @@ class UF1(Metric):
                 if len(pred) == 0:
                     prec = 1.
             f1 = 2 * prec * reca / (prec + reca + 1e-8)
+            ex = 1 if (1 - f1) < 1e-8 else 0
             self.f1 += f1
+            self.ex += ex
             self.n += 1
             if depth:
                 if d in self.depth_f1:
                     self.depth_f1[d] += f1
+                    self.depth_ex[d] += ex
                     self.depth_n[d] += 1
                 else:
                     self.depth_f1[d] = f1
+                    self.depth_ex[d] = ex
                     self.depth_n[d] = 1
+            if lens:
+                if length in self.length_f1:
+                    self.length_f1[length] += f1
+                    self.length_ex[length] += ex
+                    self.length_n[length] += 1
+                else:
+                    self.length_f1[length] = f1
+                    self.length_ex[length] = ex
+                    self.length_n[length] = 1
 
     @property
     def sentence_uf1(self):
@@ -128,6 +146,14 @@ class UF1(Metric):
         result = {}
         for d, f1 in self.depth_f1.items():
             result[d] = f1 / self.depth_n[d]
+        return result
+    
+    @property
+    def sentence_uf1_l(self):
+        self.length_f1 = dict(sorted(self.length_f1.items()))
+        result = {}
+        for l, f1 in self.length_f1.items():
+            result[l] = f1 / self.length_n[l]
         return result
 
     @property
