@@ -48,6 +48,8 @@ class Evaluate(CMD):
             self.writer.add_scalar('test/partition_number', pf/metric_f1.n, i)
         for k, v in metric_f1.sentence_uf1_d.items():
             self.writer.add_scalar('test/f1_depth', v, k)
+        for k, v in metric_f1.sentence_uf1_l.items():
+            self.writer.add_scalar('test/f1_length', v, k)
 
         self.span_depth = dict(sorted(self.span_depth.items()))
         for k, v in self.span_depth.items():
