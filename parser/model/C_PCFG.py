@@ -46,7 +46,6 @@ class CompoundPCFG(nn.Module):
         self.rule_mlp = nn.Linear(input_dim, (self.NT_T) ** 2)
         # Partition function
         self.mode = args.mode if hasattr(args, 'mode') else None
-        self.switch = True if not hasattr(args, 'warmup') else False
         # Fix embedding vectors of symbols
         self.root_emb.requires_grad = args.fix_root if hasattr(args, 'fix_root') else False
         self.nonterm_emb.requires_grad = args.fix_nonterm if hasattr(args, 'fix_nonterm') else False
@@ -137,11 +136,11 @@ class CompoundPCFG(nn.Module):
                 'rule': rule,
                 'kl': kl(mean, lvar).sum(1)}
 
-    def loss(self, input):
+    def loss(self, input, partition=False):
         rules = self.forward(input)
         result =  self.pcfg._inside(rules=rules, lens=input['seq_len'])
         # Partition function
-        if self.switch:
+        if partition:
             self.pf = self.pcfg._partition_function(rules=rules, lens=input['seq_len'], mode=self.mode, depth_output='fit')
             result['partition'] = result['partition'] - self.pf
 

@@ -60,8 +60,8 @@ class Train(CMD):
             else:
                 train_loader = dataset.train_dataloader(max_len=train_arg.max_len)
 
-            print_depth = self.model.depth if hasattr(self.model, 'depth') or self.model.depth == 0 else 'Not estimate.'
-            log.info(f'GIL Depth: {print_depth}')
+            # print_depth = self.model.depth if hasattr(self.model, 'depth') or self.model.depth == 0 else 'Not estimate.'
+            # log.info(f'GIL Depth: {print_depth}')
 
             train_loader_autodevice = DataPrefetcher(train_loader, device=self.device)
             eval_loader_autodevice = DataPrefetcher(eval_loader, device=self.device)
