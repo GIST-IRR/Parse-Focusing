@@ -60,19 +60,6 @@ class Train(CMD):
             else:
                 train_loader = dataset.train_dataloader(max_len=train_arg.max_len)
 
-            # depth curriculum
-            # if epoch > 1:
-            #     if hasattr(train_arg, 'init_depth') and train_arg.init_depth > 0:
-                    # if train_arg.depth_curriculum == 'linear':
-                    #     depth = train_arg.init_depth - ((train_arg.init_depth - train_arg.min_depth)//5)*(epoch-2)
-                    # elif train_arg.depth_curriculum == 'exp':
-                    #     depth = int(train_arg.init_depth/math.sqrt(epoch-1))
-                    # elif train_arg.depth_curriculum == 'fix':
-                    #     depth = train_arg.min_depth
-                    # depth = max(train_arg.min_depth, depth)
-                    # self.model.update_depth(depth)
-                    # log.info(f'GIL Depth: {self.model.depth}')
-
             print_depth = self.model.depth if hasattr(self.model, 'depth') or self.model.depth == 0 else 'Not estimate.'
             log.info(f'GIL Depth: {print_depth}')
 
@@ -86,11 +73,18 @@ class Train(CMD):
             dev_f1_metric, dev_ll = self.evaluate(eval_loader_autodevice)
             log.info(f"{'dev f1:':6}   {dev_f1_metric}")
             log.info(f"{'dev ll:':6}   {dev_ll}")
+            # F1 score for each epoch
             self.writer.add_scalar('valid/F1', dev_f1_metric.sentence_uf1, epoch)
+            # partition function distribution
             for i, pf in enumerate(self.pf_sum):
                 self.writer.add_scalar('valid/partition_function', pf/dev_f1_metric.n, i)
+            # F1 score for each depth
             for k, v in dev_f1_metric.sentence_uf1_d.items():
                 self.writer.add_scalar('valid/f1_depth', v, k)
+            # F1 score for each length
+            for k, v in dev_f1_metric.sentence_uf1_l.items():
+                self.writer.add_scalar('valid/f1_length', v, k)
+            # distribution of estimated span depth
             self.span_depth = dict(sorted(self.span_depth.items()))
             for k, v in self.span_depth.items():
                 self.writer.add_scalar('valid/span_depth', v/dev_f1_metric.n, k)
