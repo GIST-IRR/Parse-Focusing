@@ -16,13 +16,16 @@ class CMD(object):
         t = tqdm(loader, total=int(len(loader)),  position=0, leave=True)
         train_arg = self.args.train
         total_loss = 0
+        partition = False
         for x, _ in t:
             if self.model.mode is not None:
-                if self.iter >= train_arg.warmup:
-                    self.model.update_switch(True)
+                if not hasattr(train_arg, 'warmup'):
+                    partition = True
+                elif self.iter >= train_arg.warmup:
+                    partition = True
 
             self.optimizer.zero_grad()
-            loss = self.model.loss(x)
+            loss = self.model.loss(x, partition=partition)
             loss.backward()
             if train_arg.clip > 0:
                 nn.utils.clip_grad_norm_(self.model.parameters(),
@@ -33,7 +36,7 @@ class CMD(object):
             if hasattr(self.model, 'pf'):
                 self.pf = self.pf + self.model.pf.detach().cpu().tolist() if self.model.pf.numel() != 1 else [self.model.pf.detach().cpu().tolist()]
             if self.iter != 0 and self.iter % 100 == 0:
-                self.writer.add_scalar('train/depth', self.model.depth, self.iter)
+                # self.writer.add_scalar('train/depth', self.model.depth, self.iter)
                 self.writer.add_scalar('train/loss', total_loss/100, self.iter)
                 total_loss = 0
                 if hasattr(self.model, 'pf'):
@@ -58,7 +61,7 @@ class CMD(object):
         print('decoding mode:{}'.format(decode_type))
         print('evaluate_dep:{}'.format(eval_dep))
 
-        depth = self.args.test.depth if hasattr(self.args.test, 'depth') else 0
+        depth = self.args.test.depth - 2 if hasattr(self.args.test, 'depth') else 0
 
         self.pf_sum = torch.zeros(depth + 3)
         self.span_depth = {}
