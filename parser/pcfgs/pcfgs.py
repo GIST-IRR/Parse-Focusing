@@ -137,32 +137,38 @@ class PCFG_base():
         return predicted_arc
 
     @torch.enable_grad()
-    def depth_partition_function(self, rules, depth, full=False):
+    def depth_partition_function(self, rules, lens, mode=None):
         rule = rules['rule']
         root = rules['root']
         batch, N, NT_T, _ = rule.shape
         T = NT_T - N
 
-        D = depth + 1
+        D = lens.max() + 1
         rule = rule.reshape(batch, N, -1)
         bias = rule.new_zeros(batch, T)
         t = rule.new_zeros(batch, D, N).fill_(-1e9)
 
-        # in case of sentence depth: NT - T - w (minimum depth 3)
-        # in case of parse tree depth: S - NT - T (minimum depth 3)
-        # so we can not get any probability for the smaller depth than 3
-        # the partition number depth is based on parse tree depth
-        for d in range(3, D):
+        # Shorteset parse tree depth: ROOT - NT - T - w (minimum depth 4)
+        # without root and words, minimum depth 2.
+        # so we can not get any probability for the smaller depth than 2
+        for d in range(2, D):
             z_prev = torch.cat((t[:, d - 1], bias), dim=1)
             z = (z_prev[:, :, None] + z_prev[:, None, :]).reshape(batch, -1)
             z = (rule + z[:, None, :]).logsumexp(2)
             z = torch.clamp(z, max=0)
             t[:, d].copy_(z)
 
-        if full:
+        if mode == 'full':
             r = (root.unsqueeze(1) + t).logsumexp(2)
+            r = torch.cat([r.new_zeros(batch, 2).fill_(-1e9), r], dim=1)
+        elif mode == 'fit':
+            min_d = lens.log2().ceil().long()
+            max_d = lens
+            min_part = (root + t[torch.arange(batch), min_d]).logsumexp(1)
+            max_part = (root + t[torch.arange(batch), max_d]).logsumexp(1)
+            r = (max_part.exp() - min_part.exp()).log()
         else:
-            r = (root + t[:, depth]).logsumexp(1)
+            r = (root + t[torch.arange(batch), lens]).logsumexp(1)
         return r
 
 
@@ -246,8 +252,10 @@ class PCFG_base():
         logZ = contract(s[torch.arange(batch), lens] + root)
         return logZ
 
-    def _partition_function(self, rules, lens, mode='span', full=False):
+    def _partition_function(self, rules, lens, mode='span', depth_output=None):
         if mode == 'depth':
-            return self.depth_partition_function(rules, lens, full)
+            if type(lens) == int:
+                lens = rules['root'].new_tensor([lens]).long()
+            return self.depth_partition_function(rules, lens, depth_output)
         elif mode == 'span':
             return self.span_partition_function(rules, lens)
