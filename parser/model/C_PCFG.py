@@ -46,20 +46,15 @@ class CompoundPCFG(nn.Module):
         self.rule_mlp = nn.Linear(input_dim, (self.NT_T) ** 2)
         # Partition function
         self.mode = args.mode if hasattr(args, 'mode') else None
-        self.depth = args.depth if hasattr(args, 'depth') else 0
-        self.span = args.span if hasattr(args, 'span') else False
+        self.switch = True if not hasattr(args, 'warmup') else False
+        # Fix embedding vectors of symbols
+        self.root_emb.requires_grad = args.fix_root if hasattr(args, 'fix_root') else False
+        self.nonterm_emb.requires_grad = args.fix_nonterm if hasattr(args, 'fix_nonterm') else False
+        self.term_emb.requires_grad = args.fix_term if hasattr(args, 'fix_term') else False
 
-        if hasattr(args, 'fix_root'):
-            self.root_emb.requires_grad = True if args.fix_root else False
-        if hasattr(args, 'fix_nonterm'):
-            self.nonterm_emb.requires_grad = True if args.fix_root else False
-        if hasattr(args, 'fix_term'):
-            self.term_emb.requires_grad = True if args.fix_root else False
-
-        if hasattr(args, 'fix_root_mlp'):
-            if args.fix_root_mlp:
-                for p in self.root_mlp.parameters():
-                    p.requires_grad = False
+        if hasattr(args, 'fix_root_mlp') and args.fix_root_mlp:
+            for p in self.root_mlp.parameters():
+                p.requires_grad = False
         self._initialize()
 
 
@@ -68,11 +63,8 @@ class CompoundPCFG(nn.Module):
             if p.dim() > 1:
                 torch.nn.init.xavier_uniform_(p)
 
-    def update_depth(self, depth):
-        self.depth = depth
-
-    def update_span(self, span: bool):
-        self.span = span
+    def update_switch(self, switch: bool):
+        self.switch = switch
 
     def forward(self, input, evaluating=False):
         x = input['word']
@@ -149,16 +141,15 @@ class CompoundPCFG(nn.Module):
         rules = self.forward(input)
         result =  self.pcfg._inside(rules=rules, lens=input['seq_len'])
         # Partition function
-        if self.depth > 0 or self.span == True:
-            lens = self.depth if self.mode == 'depth' else input['seq_len']
-            self.pf = self.pcfg._partition_function(rules=rules, lens=lens, mode=self.mode)
+        if self.switch:
+            self.pf = self.pcfg._partition_function(rules=rules, lens=input['seq_len'], mode=self.mode, depth_output='fit')
             result['partition'] = result['partition'] - self.pf
 
         loss =  (-result['partition'] + rules['kl']).mean()
         return loss
 
 
-    def evaluate(self, input, decode_type, **kwargs):
+    def evaluate(self, input, decode_type, depth=0, **kwargs):
         rules = self.forward(input, evaluating=True)
         if decode_type == 'viterbi':
             result = self.pcfg.decode(rules=rules, lens=input['seq_len'], viterbi=True, mbr=False)
@@ -167,13 +158,8 @@ class CompoundPCFG(nn.Module):
         else:
             raise NotImplementedError
 
-        if self.depth < 0:
-            depth = 30
-        else:
-            depth = self.depth
-
         if depth > 0:
-            p = self.pcfg._partition_function(rules, depth, mode='depth', full=True).exp()
+            p = self.pcfg._partition_function(rules, depth, mode='depth', depth_output='full').exp()
             pp = torch.cat([p.new_zeros(p.shape[0], 1), p[:, :-1]], dim=1)
             result['depth'] = p - pp
             

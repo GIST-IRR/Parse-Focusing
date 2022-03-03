@@ -5,8 +5,6 @@ import torch.nn as nn
 from tqdm import tqdm
 from parser.helper.metric import LikelihoodMetric,  UF1, LossMetric, UAS
 
-import math
-
 from utils import depth_from_span
 
 class CMD(object):
@@ -19,20 +17,9 @@ class CMD(object):
         train_arg = self.args.train
         total_loss = 0
         for x, _ in t:
-            if self.model.mode == 'depth':
-                if hasattr(train_arg, 'init_depth') and train_arg.init_depth > 0:
-                    if train_arg.depth_curriculum == 'linear':
-                        depth = train_arg.init_depth - ((train_arg.init_depth - train_arg.min_depth)/train_arg.warmup)*(self.iter-2)
-                    elif train_arg.depth_curriculum == 'exp':
-                        depth = train_arg.init_depth/math.sqrt(self.iter-1)
-                    elif train_arg.depth_curriculum == 'fix':
-                        depth = train_arg.min_depth
-                    depth = math.ceil(depth)
-                    depth = max(train_arg.min_depth, depth)
-                    self.model.update_depth(depth)
-            elif self.model.mode == 'span':
+            if self.model.mode is not None:
                 if self.iter >= train_arg.warmup:
-                    self.model.update_span(True)
+                    self.model.update_switch(True)
 
             self.optimizer.zero_grad()
             loss = self.model.loss(x)
@@ -71,15 +58,12 @@ class CMD(object):
         print('decoding mode:{}'.format(decode_type))
         print('evaluate_dep:{}'.format(eval_dep))
 
-        if not hasattr(self.model, 'depth') or self.model.depth <= 0:
-            depth = 30
-        else:
-            depth = self.model.depth
+        depth = self.args.test.depth if hasattr(self.args.test, 'depth') else 0
 
-        self.pf_sum = torch.zeros(depth + 1)
+        self.pf_sum = torch.zeros(depth + 3)
         self.span_depth = {}
         for x, y in t:
-            result = model.evaluate(x, decode_type=decode_type, eval_dep=eval_dep)
+            result = model.evaluate(x, decode_type=decode_type, eval_dep=eval_dep, depth=depth)
             
             s_depth = [depth_from_span(r) for r in result['prediction']]
             for d in s_depth:
@@ -89,9 +73,9 @@ class CMD(object):
                     self.span_depth[d] = 1
 
             if 'depth' in y:
-                metric_f1(result['prediction'], y['gold_tree'], y['depth'], nonterminal=True)
+                metric_f1(result['prediction'], y['gold_tree'], y['depth'], lens=True, nonterminal=True)
             else:
-                metric_f1(result['prediction'], y['gold_tree'], nonterminal=True)
+                metric_f1(result['prediction'], y['gold_tree'], lens=True, nonterminal=True)
             self.pf_sum = self.pf_sum + torch.sum(result['depth'], dim=0).detach().cpu()
             metric_ll(result['partition'], x['seq_len'])
             if eval_dep:
