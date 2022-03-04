@@ -89,6 +89,9 @@ class Train(CMD):
             self.writer.add_scalar('valid/F1', dev_f1_metric.sentence_uf1, epoch)
             self.writer.add_scalar('valid/F1_left', dev_left_metric.sentence_uf1, epoch)
             self.writer.add_scalar('valid/F1_right', dev_right_metric.sentence_uf1, epoch)
+            self.writer.add_scalar('valid/Exact', dev_f1_metric.sentence_ex, epoch)
+            self.writer.add_scalar('valid/Exact_left', dev_left_metric.sentence_ex, epoch)
+            self.writer.add_scalar('valid/Exact_right', dev_right_metric.sentence_ex, epoch)
             # partition function distribution
             for i, pf in enumerate(self.pf_sum):
                 self.writer.add_scalar('valid/partition_function', pf/dev_f1_metric.n, i)
@@ -96,22 +99,29 @@ class Train(CMD):
             for k, v in dev_f1_metric.sentence_uf1_d.items():
                 self.writer.add_scalar('valid/f1_depth', v, k)
             # F1 score for each length
-            for k, v in dev_f1_metric.sentence_uf1_l.items():
-                self.writer.add_scalar('valid/f1_length', v, k)
+            # for k, v in dev_f1_metric.sentence_uf1_l.items():
+            #     self.writer.add_scalar('valid/f1_length', v, k)
+            for k, v in dev_f1_metric.sentence_ex_d.items():
+                self.writer.add_scalar('valid/Ex_depth', v, k)
                 
             # F1 score for each depth
             for k, v in dev_left_metric.sentence_uf1_d.items():
                 self.writer.add_scalar('valid/f1_left_depth', v, k)
             # F1 score for each length
-            for k, v in dev_left_metric.sentence_uf1_l.items():
-                self.writer.add_scalar('valid/f1_left_length', v, k)
+            # for k, v in dev_left_metric.sentence_uf1_l.items():
+            #     self.writer.add_scalar('valid/f1_left_length', v, k)
+            for k, v in dev_left_metric.sentence_ex_d.items():
+                self.writer.add_scalar('valid/Ex_left_depth', v, k)
 
             # F1 score for each depth
             for k, v in dev_right_metric.sentence_uf1_d.items():
                 self.writer.add_scalar('valid/f1_right_depth', v, k)
             # F1 score for each length
-            for k, v in dev_right_metric.sentence_uf1_l.items():
-                self.writer.add_scalar('valid/f1_right_length', v, k)
+            # for k, v in dev_right_metric.sentence_uf1_l.items():
+            #     self.writer.add_scalar('valid/f1_right_length', v, k)
+            for k, v in dev_right_metric.sentence_ex_d.items():
+                self.writer.add_scalar('valid/Ex_right_depth', v, k)
+
             # distribution of estimated span depth
             self.estimated_depth = dict(sorted(self.estimated_depth.items()))
             for k, v in self.estimated_depth.items():

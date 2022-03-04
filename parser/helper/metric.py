@@ -157,6 +157,26 @@ class UF1(Metric):
         return result
 
     @property
+    def sentence_ex(self):
+        return self.ex / self.n
+
+    @property
+    def sentence_ex_d(self):
+        self.depth_ex = dict(sorted(self.depth_ex.items()))
+        result = {}
+        for d, ex in self.depth_ex.items():
+            result[d] = ex / self.depth_n[d]
+        return result
+
+    @property
+    def sentence_ex_l(self):
+        self.length_ex = dict(sorted(self.length_ex.items()))
+        result = {}
+        for l, ex in self.length_ex.items():
+            result[l] = ex / self.length_n[l]
+        return result
+
+    @property
     def label_recall(self):
         result = {}
         for l, tp in self.nt_tp.items():
@@ -173,7 +193,7 @@ class UF1(Metric):
         return self.sentence_uf1
 
     def __repr__(self):
-        s = f"Sentence F1: {self.sentence_uf1:6.2%} Corpus F1: {self.corpus_uf1:6.2%} "
+        s = f"Sentence F1: {self.sentence_uf1:6.2%} Corpus F1: {self.corpus_uf1:6.2%} Sentence Ex: {self.sentence_ex:6.2%}"
         return s
 
 class UAS(Metric):

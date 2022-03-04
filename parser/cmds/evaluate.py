@@ -48,20 +48,28 @@ class Evaluate(CMD):
             self.writer.add_scalar('test/partition_number', pf/metric_f1.n, i)
         for k, v in metric_f1.sentence_uf1_d.items():
             self.writer.add_scalar('test/f1_depth', v, k)
-        for k, v in metric_f1.sentence_uf1_l.items():
-            self.writer.add_scalar('test/f1_length', v, k)
+        # for k, v in metric_f1.sentence_uf1_l.items():
+        #     self.writer.add_scalar('test/f1_length', v, k)
+        for k, v in metric_f1.sentence_ex_d.items():
+            self.writer.add_scalar('test/Ex_depth', v, k)
+
         # F1 score for each depth
         for k, v in metric_left.sentence_uf1_d.items():
             self.writer.add_scalar('valid/f1_left_depth', v, k)
         # F1 score for each length
-        for k, v in metric_left.sentence_uf1_l.items():
-            self.writer.add_scalar('valid/f1_left_length', v, k)
+        # for k, v in metric_left.sentence_uf1_l.items():
+        #     self.writer.add_scalar('valid/f1_left_length', v, k)
+        for k, v in metric_left.sentence_ex_d.items():
+            self.writer.add_scalar('valid/Ex_left_depth', v, k)
+
         # F1 score for each depth
         for k, v in metric_right.sentence_uf1_d.items():
             self.writer.add_scalar('valid/f1_right_depth', v, k)
         # F1 score for each length
-        for k, v in metric_right.sentence_uf1_l.items():
-            self.writer.add_scalar('valid/f1_right_length', v, k)
+        # for k, v in metric_right.sentence_uf1_l.items():
+        #     self.writer.add_scalar('valid/f1_right_length', v, k)
+        for k, v in metric_right.sentence_ex_d.items():
+            self.writer.add_scalar('valid/Ex_right_depth', v, k)
 
         self.estimated_depth = dict(sorted(self.estimated_depth.items()))
         for k, v in self.estimated_depth.items():
