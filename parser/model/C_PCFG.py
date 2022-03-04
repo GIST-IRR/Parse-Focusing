@@ -47,9 +47,12 @@ class CompoundPCFG(nn.Module):
         # Partition function
         self.mode = args.mode if hasattr(args, 'mode') else None
         # Fix embedding vectors of symbols
-        self.root_emb.requires_grad = args.fix_root if hasattr(args, 'fix_root') else False
-        self.nonterm_emb.requires_grad = args.fix_nonterm if hasattr(args, 'fix_nonterm') else False
-        self.term_emb.requires_grad = args.fix_term if hasattr(args, 'fix_term') else False
+        if hasattr(args, 'fix_root'):
+            self.root_emb.requires_grad = args.fix_root
+        if hasattr(args, 'fix_nonterm'):
+            self.nonterm_emb.requires_grad = args.fix_nonterm
+        if hasattr(args, 'fix_term'):
+            self.term_emb.requires_grad = args.fix_term
 
         if hasattr(args, 'fix_root_mlp') and args.fix_root_mlp:
             for p in self.root_mlp.parameters():
