@@ -24,10 +24,13 @@ def get_cnf_trees(file):
             trees.append(tree)
     return trees
 
-def trees_to_cnf(trees, horzMarkov=0, vertMarkov=1):
+def trees_to_cnf(trees, factor='right', horzMarkov=None, vertMarkov=0):
+    result = []
     for t in trees:
-        t.chomsky_normal_form(horzMarkov=horzMarkov, vertMarkov=vertMarkov)
-    return trees
+        t = copy.deepcopy(t)
+        t.chomsky_normal_form(factor=factor, horzMarkov=horzMarkov, vertMarkov=vertMarkov)
+        result.append(t)
+    return result
 
 def factorize(tree):
     def track(tree, i):
@@ -62,29 +65,66 @@ def create_dataset(file_name):
             'pos': pos_array,
             'gold_tree':gold_trees}
 
-def create_dataset_from_trees(trees, depth=False):
+def create_dataset_from_trees(trees, depth=False, cnf='none'):
     word_array = []
     pos_array = []
     gold_trees = []
+    gold_trees_left = []
+    gold_trees_right = []
     depth_array = []
+    depth_left = []
+    depth_right = []
     for tree in trees:
         token = tree.pos()
         word, pos = zip(*token)
         word_array.append(word)
         pos_array.append(pos)
         gold_trees.append(factorize(tree))
+        if cnf == 'both':
+            left_tree = copy.deepcopy(tree)
+            left_tree.chomsky_normal_form(factor='left')
+            gold_trees_left.append(factorize(left_tree))
+            right_tree = copy.deepcopy(tree)
+            right_tree.chomsky_normal_form(factor='right')
+            gold_trees_right.append(factorize(right_tree))
+            if depth:
+                depth_left.append(left_tree.height())
+                depth_right.append(right_tree.height())
+        elif cnf == 'left':
+            left_tree = copy.deepcopy(tree)
+            left_tree.chomsky_normal_form(factor='left')
+            gold_trees_left.append(factorize(left_tree))
+            if depth:
+                depth_left.append(left_tree.height())
+        elif cnf == 'right':
+            right_tree = copy.deepcopy(tree)
+            right_tree.chomsky_normal_form(factor='right')
+            gold_trees_right.append(factorize(right_tree))
+            if depth:
+                depth_right.append(right_tree.height())
         if depth:
             depth_array.append(tree.height())
 
+    result = {
+        'word': word_array,
+        'pos': pos_array,
+        'gold_tree': gold_trees
+    }
+    if cnf == 'both':
+        result.update({'gold_tree_left': gold_trees_left})
+        result.update({'gold_tree_right': gold_trees_right})
+        result.update({'depth_left': depth_left})
+        result.update({'depth_right': depth_right})
+    elif cnf == 'left':
+        result.update({'gold_tree_left': gold_trees_left})
+        result.update({'depth_left': depth_left})
+    elif cnf == 'right':
+        result.update({'gold_tree_right': gold_trees_right})
+        result.update({'depth_right': depth_right})
     if depth:
-        return {'word': word_array,
-                'pos': pos_array,
-                'gold_tree': gold_trees,
-                'depth': depth_array}
-    else:
-        return {'word': word_array,
-                'pos': pos_array,
-                'gold_tree': gold_trees}
+        result.update({'depth': depth_array})
+
+    return result
 
 def redistribution(args):
     # Get path for the dataset
@@ -152,23 +192,23 @@ def redistribution(args):
     )
 
     # Change trees to CNF trees If option is true
-    if args.cnf:
-        print('[INFO] Convert trees to CNF trees...', end='')
-        train_trees = trees_to_cnf(train_trees)
-        valid_trees = trees_to_cnf(valid_trees)
-        test_trees = trees_to_cnf(test_trees)
-        print('DONE.')
+    # if args.cnf != 'none':
+    #     print('[INFO] Convert trees to CNF trees...', end='')
+    #     train_trees = trees_to_cnf(train_trees)
+    #     valid_trees = trees_to_cnf(valid_trees)
+    #     test_trees = trees_to_cnf(test_trees)
+    #     print('DONE.')
 
     print('[INFO] Saving dataset...', end='')
-    result = create_dataset_from_trees(train_trees, depth=args.target_depth)
+    result = create_dataset_from_trees(train_trees, depth=args.target_depth, cnf=args.cnf)
     with open(os.path.join(args.cache_path, f"{args.prefix}-{args.criterion}-train.pkl"), "wb") as f:
         pickle.dump(result, f)
 
-    result = create_dataset_from_trees(valid_trees, depth=args.target_depth)
+    result = create_dataset_from_trees(valid_trees, depth=args.target_depth, cnf=args.cnf)
     with open(os.path.join(args.cache_path, f"{args.prefix}-{args.criterion}-valid.pkl"), "wb") as f:
         pickle.dump(result, f)
 
-    result = create_dataset_from_trees(test_trees, depth=args.target_depth)
+    result = create_dataset_from_trees(test_trees, depth=args.target_depth, cnf=args.cnf)
     with open(os.path.join(args.cache_path, f"{args.prefix}-{args.criterion}-test.pkl"), "wb") as f:
         pickle.dump(result, f)
     print('DONE.')
@@ -184,7 +224,7 @@ if __name__ == '__main__':
     parser.add_argument('--prefix', default='english')
     parser.add_argument('--cache_path', default='data/')
     parser.add_argument('--criterion', default='standard', choices=['standard', 'depth', 'length', 'cnf-depth'])
-    parser.add_argument('--cnf', action='store_true', default=False)
+    parser.add_argument('--cnf', default='none', choices=['none', 'left', 'right', 'both'])
     parser.add_argument('--target_depth', action='store_true', default=False)
     args = parser.parse_args()
 

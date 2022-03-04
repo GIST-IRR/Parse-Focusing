@@ -23,23 +23,23 @@ class Evaluate(CMD):
         self.args = args
         dataset = DataModule(args)
         self.model = get_model(args.model, dataset)
-        if hasattr(args.test, 'depth'):
-            self.model.depth = args.test.depth
-        elif hasattr(args.train, 'min_depth'):
-            self.model.depth = args.train.min_depth
         best_model_path = self.args.load_from_dir + "/best.pt"
         self.model.load_state_dict(torch.load(str(best_model_path)))
         print('successfully load')
 
+        eval_depth = self.args.test.eval_depth if hasattr(self.args.test, 'eval_depth') else False
+        left_binarization = self.args.test.left_binarization if hasattr(self.args.test, 'left_binarization') else False
+        right_binarization = self.args.test.right_binarization if hasattr(self.args.test, 'right_binarization') else False
         self.writer = SummaryWriter(self.args.load_from_dir)
 
         test_loader = dataset.test_dataloader
         test_loader_autodevice = DataPrefetcher(test_loader, device=self.device)
-        if not eval_dep:
-            metric_f1, likelihood = self.evaluate(test_loader_autodevice, eval_dep=eval_dep, decode_type=decode_type)
-        else:
-            metric_f1, metric_uas, likelihood = self.evaluate(test_loader_autodevice, eval_dep=eval_dep, decode_type=decode_type)
-            print(metric_uas)
+
+        metric_f1, metric_uas, likelihood, metric_left, metric_right = self.evaluate(
+            test_loader_autodevice, eval_dep=eval_dep, decode_type=decode_type,
+            eval_depth=eval_depth, left_binarization=left_binarization, right_binarization=right_binarization
+        )
+        print(metric_uas)
         print(metric_f1)
         print(likelihood)
 
@@ -50,10 +50,22 @@ class Evaluate(CMD):
             self.writer.add_scalar('test/f1_depth', v, k)
         for k, v in metric_f1.sentence_uf1_l.items():
             self.writer.add_scalar('test/f1_length', v, k)
+        # F1 score for each depth
+        for k, v in metric_left.sentence_uf1_d.items():
+            self.writer.add_scalar('valid/f1_left_depth', v, k)
+        # F1 score for each length
+        for k, v in metric_left.sentence_uf1_l.items():
+            self.writer.add_scalar('valid/f1_left_length', v, k)
+        # F1 score for each depth
+        for k, v in metric_right.sentence_uf1_d.items():
+            self.writer.add_scalar('valid/f1_right_depth', v, k)
+        # F1 score for each length
+        for k, v in metric_right.sentence_uf1_l.items():
+            self.writer.add_scalar('valid/f1_right_length', v, k)
 
-        self.span_depth = dict(sorted(self.span_depth.items()))
-        for k, v in self.span_depth.items():
-            self.writer.add_scalar('test/span_depth', v/metric_f1.n, k)
+        self.estimated_depth = dict(sorted(self.estimated_depth.items()))
+        for k, v in self.estimated_depth.items():
+            self.writer.add_scalar('test/estimated_depth', v/metric_f1.n, k)
 
         self.writer.flush()
         self.writer.close()

@@ -44,15 +44,26 @@ class Train(CMD):
         '''
         train_arg = args.train
         self.train_arg = train_arg
+
+        # Arguments for validation
+        eval_depth = self.args.test.eval_depth if hasattr(self.args.test, 'eval_depth') else False
+        left_binarization = self.args.test.left_binarization if hasattr(self.args.test, 'left_binarization') else False
+        right_binarization = self.args.test.right_binarization if hasattr(self.args.test, 'right_binarization') else False
         
         # Check total iteration
         self.iter = 0
         self.pf = []
+        self.partition = False
 
         for epoch in range(1, train_arg.max_epoch + 1):
             '''
             Auto .to(self.device)
             '''
+
+            # Warmup for epoch
+            if hasattr(self.train_arg, 'warmup_epoch'):
+                if epoch > self.train_arg.warmup_epoch:
+                    self.partition = True
 
             # curriculum learning. Used in compound PCFG.
             if train_arg.curriculum:
@@ -70,11 +81,14 @@ class Train(CMD):
             log.info(f"Epoch {epoch} / {train_arg.max_epoch}:")
 
 
-            dev_f1_metric, dev_ll = self.evaluate(eval_loader_autodevice)
+            dev_f1_metric, _, dev_ll, dev_left_metric, dev_right_metric = self.evaluate(eval_loader_autodevice,
+                eval_depth=eval_depth, left_binarization=left_binarization, right_binarization=right_binarization)
             log.info(f"{'dev f1:':6}   {dev_f1_metric}")
             log.info(f"{'dev ll:':6}   {dev_ll}")
             # F1 score for each epoch
             self.writer.add_scalar('valid/F1', dev_f1_metric.sentence_uf1, epoch)
+            self.writer.add_scalar('valid/F1_left', dev_left_metric.sentence_uf1, epoch)
+            self.writer.add_scalar('valid/F1_right', dev_right_metric.sentence_uf1, epoch)
             # partition function distribution
             for i, pf in enumerate(self.pf_sum):
                 self.writer.add_scalar('valid/partition_function', pf/dev_f1_metric.n, i)
@@ -84,10 +98,24 @@ class Train(CMD):
             # F1 score for each length
             for k, v in dev_f1_metric.sentence_uf1_l.items():
                 self.writer.add_scalar('valid/f1_length', v, k)
+                
+            # F1 score for each depth
+            for k, v in dev_left_metric.sentence_uf1_d.items():
+                self.writer.add_scalar('valid/f1_left_depth', v, k)
+            # F1 score for each length
+            for k, v in dev_left_metric.sentence_uf1_l.items():
+                self.writer.add_scalar('valid/f1_left_length', v, k)
+
+            # F1 score for each depth
+            for k, v in dev_right_metric.sentence_uf1_d.items():
+                self.writer.add_scalar('valid/f1_right_depth', v, k)
+            # F1 score for each length
+            for k, v in dev_right_metric.sentence_uf1_l.items():
+                self.writer.add_scalar('valid/f1_right_length', v, k)
             # distribution of estimated span depth
-            self.span_depth = dict(sorted(self.span_depth.items()))
-            for k, v in self.span_depth.items():
-                self.writer.add_scalar('valid/span_depth', v/dev_f1_metric.n, k)
+            self.estimated_depth = dict(sorted(self.estimated_depth.items()))
+            for k, v in self.estimated_depth.items():
+                self.writer.add_scalar('valid/estimated_depth', v/dev_f1_metric.n, k)
 
             t = datetime.now() - start
 

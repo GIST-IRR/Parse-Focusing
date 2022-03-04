@@ -16,16 +16,16 @@ class CMD(object):
         t = tqdm(loader, total=int(len(loader)),  position=0, leave=True)
         train_arg = self.args.train
         total_loss = 0
-        partition = False
+
         for x, _ in t:
-            if self.model.mode is not None:
+            if self.model.mode is not None and not hasattr(train_arg, 'warmup_epoch'):
                 if not hasattr(train_arg, 'warmup'):
-                    partition = True
+                    self.partition = True
                 elif self.iter >= train_arg.warmup:
-                    partition = True
+                    self.partition = True
 
             self.optimizer.zero_grad()
-            loss = self.model.loss(x, partition=partition)
+            loss = self.model.loss(x, partition=self.partition)
             loss.backward()
             if train_arg.clip > 0:
                 nn.utils.clip_grad_norm_(self.model.parameters(),
@@ -49,14 +49,18 @@ class CMD(object):
 
 
     @torch.no_grad()
-    def evaluate(self, loader, eval_dep=False, decode_type='mbr', model=None):
+    def evaluate(self, loader, eval_dep=False, decode_type='mbr', model=None,
+                    eval_depth=False, left_binarization=False, right_binarization=False):
         if model == None:
             model = self.model
         model.eval()
+
         metric_f1 = UF1()
-        if eval_dep:
-            metric_uas = UAS()
+        metric_f1_left = UF1()
+        metric_f1_right = UF1()
+        metric_uas = UAS()
         metric_ll = LikelihoodMetric()
+
         t = tqdm(loader, total=int(len(loader)),  position=0, leave=True)
         print('decoding mode:{}'.format(decode_type))
         print('evaluate_dep:{}'.format(eval_dep))
@@ -64,26 +68,33 @@ class CMD(object):
         depth = self.args.test.depth - 2 if hasattr(self.args.test, 'depth') else 0
 
         self.pf_sum = torch.zeros(depth + 3)
-        self.span_depth = {}
+        self.estimated_depth = {}
         for x, y in t:
             result = model.evaluate(x, decode_type=decode_type, eval_dep=eval_dep, depth=depth)
             
             s_depth = [depth_from_span(r) for r in result['prediction']]
             for d in s_depth:
-                if d in self.span_depth:
-                    self.span_depth[d] += 1
+                if d in self.estimated_depth:
+                    self.estimated_depth[d] += 1
                 else:
-                    self.span_depth[d] = 1
+                    self.estimated_depth[d] = 1
 
-            if 'depth' in y:
+            if eval_depth:
                 metric_f1(result['prediction'], y['gold_tree'], y['depth'], lens=True, nonterminal=True)
             else:
                 metric_f1(result['prediction'], y['gold_tree'], lens=True, nonterminal=True)
+            if left_binarization:
+                metric_f1_left(result['prediction'], y['gold_tree_left'], y['depth_left'], lens=True, nonterminal=True)
+            if right_binarization:
+                metric_f1_right(result['prediction'], y['gold_tree_right'], y['depth_right'], lens=True, nonterminal=True)
+
             self.pf_sum = self.pf_sum + torch.sum(result['depth'], dim=0).detach().cpu()
             metric_ll(result['partition'], x['seq_len'])
             if eval_dep:
                 metric_uas(result['prediction_arc'], y['head'])
-        if not eval_dep:
-            return metric_f1, metric_ll
-        else:
-            return metric_f1, metric_uas, metric_ll
+
+        return metric_f1, metric_uas, metric_ll, metric_f1_left, metric_f1_right
+        # if not eval_dep:
+        #     return metric_f1, metric_ll
+        # else:
+        #     return metric_f1, metric_uas, metric_ll

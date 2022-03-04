@@ -49,6 +49,29 @@ class DataModule():
         val_dataset.add_seq_len(field_name="word", new_field_name="seq_len")
         test_dataset.add_seq_len(field_name="word", new_field_name="seq_len")
 
+        # Binarized gold trees
+        try:
+            train_dataset.add_field("gold_tree_left", train_data['gold_tree_left'], padder=None, ignore_type=True)
+            val_dataset.add_field("gold_tree_left", val_data['gold_tree_left'], padder=None, ignore_type=True)
+            test_dataset.add_field("gold_tree_left", test_data['gold_tree_left'], padder=None, ignore_type=True)
+            train_dataset.set_target("gold_tree_left")
+            val_dataset.set_target("gold_tree_left")
+            test_dataset.set_target("gold_tree_left")
+        except:
+            print("No Left Binarization")
+            pass
+
+        try:
+            train_dataset.add_field("gold_tree_right", train_data['gold_tree_right'], padder=None, ignore_type=True)
+            val_dataset.add_field("gold_tree_right", val_data['gold_tree_right'], padder=None, ignore_type=True)
+            test_dataset.add_field("gold_tree_right", test_data['gold_tree_right'], padder=None, ignore_type=True)
+            train_dataset.set_target("gold_tree_right")
+            val_dataset.set_target("gold_tree_right")
+            test_dataset.set_target("gold_tree_right")
+        except:
+            print("No Right Binarization")
+            pass
+
         # Depth of trees
         try:
             train_dataset.add_field("depth", train_data['depth'],padder=None,ignore_type=True)
@@ -59,6 +82,28 @@ class DataModule():
             test_dataset.set_target("depth")
         except:
             print('No depth')
+            pass
+
+        try:
+            train_dataset.add_field("depth_left", train_data['depth_left'],padder=None,ignore_type=True)
+            val_dataset.add_field("depth_left", val_data['depth_left'],padder=None,ignore_type=True)
+            test_dataset.add_field("depth_left", test_data['depth_left'],padder=None,ignore_type=True)
+            train_dataset.set_target("depth_left")
+            val_dataset.set_target("depth_left")
+            test_dataset.set_target("depth_left")
+        except:
+            print('No depth of left binarization')
+            pass
+
+        try:
+            train_dataset.add_field("depth_right", train_data['depth_right'],padder=None,ignore_type=True)
+            val_dataset.add_field("depth_right", val_data['depth_right'],padder=None,ignore_type=True)
+            test_dataset.add_field("depth_right", test_data['depth_right'],padder=None,ignore_type=True)
+            train_dataset.set_target("depth_right")
+            val_dataset.set_target("depth_right")
+            test_dataset.set_target("depth_right")
+        except:
+            print('No depth of right binarization')
             pass
 
         # POS tag of gold trees
