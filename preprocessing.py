@@ -1,3 +1,4 @@
+from ntpath import join
 from nltk import Tree
 import argparse
 import pickle
@@ -24,13 +25,32 @@ def get_cnf_trees(file):
             trees.append(tree)
     return trees
 
+def tree_to_cnf(tree, factor='right', horzMarkov=None, vertMarkov=0):
+    tree = tree.copy(deep=True)
+    tree.chomsky_normal_form(factor=factor, horzMarkov=horzMarkov, vertMarkov=vertMarkov)
+    return tree
+
 def trees_to_cnf(trees, factor='right', horzMarkov=None, vertMarkov=0):
     result = []
     for t in trees:
-        t = copy.deepcopy(t)
-        t.chomsky_normal_form(factor=factor, horzMarkov=horzMarkov, vertMarkov=vertMarkov)
+        t = tree_to_cnf(t, factor=factor, horzMarkov=horzMarkov, vertMarkov=vertMarkov)
         result.append(t)
     return result
+
+def collapse_unary(tree, collapsePOS=False, collapseRoot=False, joinChar='+'):
+    tree = tree.copy(deep=True)
+    tree.collapse_unary(collapsePOS=collapsePOS, collapseRoot=collapseRoot, joinChar=joinChar)
+    return tree
+
+def tree_transform(
+    tree, factor='right', collapse=False, collapsePOS=True,
+):
+    tree = tree.copy(deep=True)
+    if collapse:
+        tree.collapse_unary(collapsePOS=collapsePOS)
+    tree.chomsky_normal_form(factor=factor)
+    return tree
+
 
 def factorize(tree):
     def track(tree, i):
@@ -65,7 +85,7 @@ def create_dataset(file_name):
             'pos': pos_array,
             'gold_tree':gold_trees}
 
-def create_dataset_from_trees(trees, depth=False, cnf='none'):
+def create_dataset_from_trees(trees, depth=False, cnf='none', collapse=False):
     word_array = []
     pos_array = []
     gold_trees = []
@@ -81,24 +101,20 @@ def create_dataset_from_trees(trees, depth=False, cnf='none'):
         pos_array.append(pos)
         gold_trees.append(factorize(tree))
         if cnf == 'both':
-            left_tree = copy.deepcopy(tree)
-            left_tree.chomsky_normal_form(factor='left')
+            left_tree = tree_transform(tree, factor='left', collapse=collapse)
             gold_trees_left.append(factorize(left_tree))
-            right_tree = copy.deepcopy(tree)
-            right_tree.chomsky_normal_form(factor='right')
+            right_tree = tree_transform(tree, factor='right', collapse=collapse)
             gold_trees_right.append(factorize(right_tree))
             if depth:
                 depth_left.append(left_tree.height())
                 depth_right.append(right_tree.height())
         elif cnf == 'left':
-            left_tree = copy.deepcopy(tree)
-            left_tree.chomsky_normal_form(factor='left')
+            left_tree = tree_transform(tree, factor='left', collapse=collapse)
             gold_trees_left.append(factorize(left_tree))
             if depth:
                 depth_left.append(left_tree.height())
         elif cnf == 'right':
-            right_tree = copy.deepcopy(tree)
-            right_tree.chomsky_normal_form(factor='right')
+            right_tree = tree_transform(tree, factor='right', collapse=collapse)
             gold_trees_right.append(factorize(right_tree))
             if depth:
                 depth_right.append(right_tree.height())
@@ -200,15 +216,15 @@ def redistribution(args):
     #     print('DONE.')
 
     print('[INFO] Saving dataset...', end='')
-    result = create_dataset_from_trees(train_trees, depth=args.target_depth, cnf=args.cnf)
+    result = create_dataset_from_trees(train_trees, depth=args.target_depth, cnf=args.cnf, collapse=args.collapse)
     with open(os.path.join(args.cache_path, f"{args.prefix}-{args.criterion}-train.pkl"), "wb") as f:
         pickle.dump(result, f)
 
-    result = create_dataset_from_trees(valid_trees, depth=args.target_depth, cnf=args.cnf)
+    result = create_dataset_from_trees(valid_trees, depth=args.target_depth, cnf=args.cnf, collapse=args.collapse)
     with open(os.path.join(args.cache_path, f"{args.prefix}-{args.criterion}-valid.pkl"), "wb") as f:
         pickle.dump(result, f)
 
-    result = create_dataset_from_trees(test_trees, depth=args.target_depth, cnf=args.cnf)
+    result = create_dataset_from_trees(test_trees, depth=args.target_depth, cnf=args.cnf, collapse=args.collapse)
     with open(os.path.join(args.cache_path, f"{args.prefix}-{args.criterion}-test.pkl"), "wb") as f:
         pickle.dump(result, f)
     print('DONE.')
@@ -226,6 +242,7 @@ if __name__ == '__main__':
     parser.add_argument('--criterion', default='standard', choices=['standard', 'depth', 'length', 'cnf-depth'])
     parser.add_argument('--cnf', default='none', choices=['none', 'left', 'right', 'both'])
     parser.add_argument('--target_depth', action='store_true', default=False)
+    parser.add_argument('--collapse', action='store_true', default=False)
     args = parser.parse_args()
 
     redistribution(args)
