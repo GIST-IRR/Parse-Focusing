@@ -137,13 +137,13 @@ class PCFG_base():
         return predicted_arc
 
     @torch.enable_grad()
-    def depth_partition_function(self, rules, lens, mode=None):
+    def depth_partition_function(self, rules, lens, mode=None, span=0):
         rule = rules['rule']
         root = rules['root']
         batch, N, NT_T, _ = rule.shape
         T = NT_T - N
 
-        D = lens.max() + 1
+        D = lens.max() + span + 1
         rule = rule.reshape(batch, N, -1)
         bias = rule.new_zeros(batch, T)
         t = rule.new_zeros(batch, D, N).fill_(-1e9)
@@ -163,12 +163,67 @@ class PCFG_base():
             r = torch.cat([r.new_zeros(batch, 2).fill_(-1e9), r], dim=1)
         elif mode == 'fit':
             min_d = lens.log2().ceil().long()
-            max_d = lens
+            max_d = lens + span
             min_part = (root + t[torch.arange(batch), min_d]).logsumexp(1)
             max_part = (root + t[torch.arange(batch), max_d]).logsumexp(1)
             r = (max_part.exp() - min_part.exp()).log()
+            return r, max_d - min_d
         else:
-            r = (root + t[torch.arange(batch), lens]).logsumexp(1)
+            r = (root + t[torch.arange(batch), lens + span]).logsumexp(1)
+        return r
+
+
+    @torch.enable_grad()
+    def depth_partition_function_v2(self, rules, lens, mode=None, span=0):
+        rule = rules['rule']
+        root = rules['root']
+        batch, NT, NT_T, _ = rule.shape
+        T = NT_T - NT
+        NTs = slice(0, NT)
+        Ts = slice(NT, NT_T)
+
+        D = lens.max() + span + 1
+        X_Y_Z = rule[:, :, NTs, NTs].reshape(batch, NT, -1)
+        X_Y_z = rule[:, :, NTs, Ts].reshape(batch, NT, -1)
+        X_y_Z = rule[:, :, Ts, NTs].reshape(batch, NT, -1)
+        X_y_z = rule[:, :, Ts, Ts].reshape(batch, NT, -1)
+        bias = rule.new_zeros(batch, T)
+        t = rule.new_zeros(batch, D, NT).fill_(-1e9)
+
+        def contract(rule, y, z, dim=-1):
+            r = (y[:, :, None] + z[:, None, :]).reshape(batch, -1)
+            r = (rule + r[:, None, :]).logsumexp(dim)
+            return r
+        
+        # Shorteset parse tree depth: ROOT - NT - T - w (minimum depth 4)
+        # without root and words, minimum depth 2.
+        # so we can not get any probability for the smaller depth than 2
+        for d in range(2, D):
+            if d == 2:
+                # NT -> T T
+                x = X_y_z.logsumexp(2)
+            else:
+                x = rule.new_zeros(5, batch, NT).fill_(-1e9)
+                # NT -> d-1 tree, d-1 tree
+                zp = t[:, d-1]
+                x[0].copy_(contract(X_Y_Z, zp, zp))
+                # NT -> d-1 tree, 1~d-2 tree
+                # NT -> 1~d-2 tree, d-1 tree
+                x[1].copy_(contract(X_Y_z, zp, bias))
+                x[2].copy_(contract(X_y_Z, bias, zp))
+                if d > 3:
+                    st = t[:, 2:d-1].clone().logsumexp(1)
+                    x[3].copy_(contract(X_Y_Z, zp, st))
+                    x[4].copy_(contract(X_Y_Z, st, zp))
+                x = x.logsumexp(0)
+            t[:, d].copy_(x)
+
+        if mode == 'full':
+            r = (root.unsqueeze(1) + t).logsumexp(2)
+            r = torch.cat([r.new_zeros(batch, 2).fill_(-1e9), r], dim=1)
+        else:
+            r = root + t.logsumexp(1)
+            r = r.logsumexp(1)
         return r
 
 
@@ -252,10 +307,10 @@ class PCFG_base():
         logZ = contract(s[torch.arange(batch), lens] + root)
         return logZ
 
-    def _partition_function(self, rules, lens, mode='span', depth_output=None):
+    def _partition_function(self, rules, lens, mode='span', depth_output=None, span=0):
         if mode == 'depth':
             if type(lens) == int:
                 lens = rules['root'].new_tensor([lens]).long()
-            return self.depth_partition_function(rules, lens, depth_output)
+            return self.depth_partition_function_v2(rules, lens, depth_output, span)
         elif mode == 'span':
             return self.span_partition_function(rules, lens)

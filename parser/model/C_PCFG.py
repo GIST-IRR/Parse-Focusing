@@ -139,13 +139,22 @@ class CompoundPCFG(nn.Module):
                 'rule': rule,
                 'kl': kl(mean, lvar).sum(1)}
 
-    def loss(self, input, partition=False):
+    def loss(self, input, partition=False, span=0):
         rules = self.forward(input)
-        result =  self.pcfg._inside(rules=rules, lens=input['seq_len'])
+        min_d = input['seq_len'].log2().ceil().long().min() + 1
+        # result =  self.pcfg._inside(rules=rules, lens=input['seq_len'])
+        result = self.pcfg._inside_v2(rules=rules, lens=input['seq_len'])
+        result['partition'] = result['partition'][:, min_d:]
         # Partition function
         if partition:
-            self.pf = self.pcfg._partition_function(rules=rules, lens=input['seq_len'], mode=self.mode, depth_output='fit')
+            self.pf = self.pcfg._partition_function(rules=rules, lens=input['seq_len'], mode=self.mode, depth_output='full')[:, min_d+2:]
             result['partition'] = result['partition'] - self.pf
+            # result['partition'] = result['partition'] - self.pf
+            # dr = input['seq_len'].log2().ceil().long() - input['seq_len']
+            # result['partition'] = result['partition'] - (self.pf + dr.log())
+            # result['partition'] = result['partition'] - (self.pf/dr)
+            # result['partition'] = self.pf.new_tensor([2]).log() + result['partition'] - (self.pf.exp() + 1).log()
+            result['partition'] = result['partition'].logsumexp(-1)
 
         loss =  (-result['partition'] + rules['kl']).mean()
         return loss
@@ -161,9 +170,10 @@ class CompoundPCFG(nn.Module):
             raise NotImplementedError
 
         if depth > 0:
-            p = self.pcfg._partition_function(rules, depth, mode='depth', depth_output='full').exp()
-            pp = torch.cat([p.new_zeros(p.shape[0], 1), p[:, :-1]], dim=1)
-            result['depth'] = p - pp
+            # p = self.pcfg._partition_function(rules, depth, mode='depth', depth_output='full').exp()
+            # pp = torch.cat([p.new_zeros(p.shape[0], 1), p[:, :-1]], dim=1)
+            # result['depth'] = p - pp
+            result['depth'] = self.pcfg._partition_function(rules, depth, mode='depth', depth_output='full').exp()
             
         result['partition'] -= rules['kl']
         return result
