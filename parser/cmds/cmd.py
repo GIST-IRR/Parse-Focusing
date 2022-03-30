@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 from parser.helper.metric import LikelihoodMetric,  UF1, LossMetric, UAS
+from torch.profiler import profile, record_function, ProfilerActivity
 
 from utils import depth_from_span
 
@@ -18,10 +19,8 @@ class CMD(object):
         total_loss = 0
 
         for x, _ in t:
-            if self.model.mode is not None and not hasattr(train_arg, 'warmup_epoch'):
-                if not hasattr(train_arg, 'warmup'):
-                    self.partition = True
-                elif self.iter >= train_arg.warmup:
+            if not hasattr(train_arg, 'warmup_epoch') and hasattr(train_arg, 'warmup'):
+                if self.iter >= train_arg.warmup:
                     self.partition = True
 
             self.optimizer.zero_grad()
