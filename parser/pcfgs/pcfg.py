@@ -1,5 +1,5 @@
 from parser.pcfgs.pcfgs import PCFG_base
-from parser.pcfgs.fn import stripe, diagonal_copy_, diagonal, checkpoint
+from parser.pcfgs.fn import stripe, diagonal_copy_depth, diagonal_copy_, diagonal, checkpoint
 import torch
 from torch_scatter import scatter_logsumexp
 
@@ -131,10 +131,15 @@ class PCFG(PCFG_base):
             else:
                 return x.logsumexp(dim)
 
+        index_cache = {}
         def depth_add_(y, d):
-            index = torch.maximum(
-                torch.arange(d).unsqueeze(1).expand(d, d),
-                torch.arange(d).unsqueeze(0).expand(d, d)).reshape(-1).to(y.device)
+            if d in index_cache:
+                index = index_cache[d]
+            else:
+                index = torch.maximum(
+                    torch.arange(d).unsqueeze(1).expand(d, d),
+                    torch.arange(d).unsqueeze(0).expand(d, d)).reshape(-1).to(y.device)
+                index_cache[d] = index
             return scatter_logsumexp(y, index)
 
         # nonterminals: X Y Z
@@ -145,9 +150,8 @@ class PCFG(PCFG_base):
             n = y.shape[1]
             b_n_yz = (y + z).reshape(batch, n, T * T)
             b_n_x = contract(b_n_yz.unsqueeze(-2) + rule.unsqueeze(1))
-            b_n_x_d = b_n_x.new_zeros(*b_n_x.shape, N).fill_(-1e9)
-            b_n_x_d[..., 2].copy_(b_n_x)
-            return b_n_x_d
+            b_n_x = torch.cat([b_n_x.new_zeros(*b_n_x.shape, 2).fill_(-1e9), b_n_x.unsqueeze(-1)], dim=-1)
+            return b_n_x
 
         @checkpoint
         def XYZ(Y, Z, rule):
@@ -156,7 +160,7 @@ class PCFG(PCFG_base):
             b_n_yz = contract(Y[:, :, 1:-1, :, None, :, None] + Z[:, :, 1:-1, None, :, None, :], dim=2).reshape(batch, n, NT * NT, -1)
             b_n_yz = depth_add_(b_n_yz, d)
             b_n_x = contract(b_n_yz.unsqueeze(2) + rule[:, None, :, :, None], dim=-2)
-            b_n_x = torch.cat([b_n_x.new_zeros(*b_n_x.shape[:-1], 1).fill_(-1e9), b_n_x[..., :-1]], dim=-1)
+            b_n_x = torch.cat([b_n_x.new_zeros(*b_n_x.shape[:-1], 1).fill_(-1e9), b_n_x], dim=-1)
             return b_n_x
 
         @checkpoint
@@ -167,9 +171,8 @@ class PCFG(PCFG_base):
             z = z.unsqueeze(-1)
             b_n_yz = (Y + z).reshape(batch, n, NT * T, d)
             b_n_x = contract(b_n_yz.unsqueeze(2) + rule[:, None, :, :, None], dim=-2)
-            b_n_x = torch.cat([b_n_x.new_zeros(*b_n_x.shape[:-1], 1).fill_(-1e9), b_n_x[..., :-1]], dim=-1)
+            b_n_x = torch.cat([b_n_x.new_zeros(*b_n_x.shape[:-1], 1).fill_(-1e9), b_n_x], dim=-1)
             return b_n_x
-
 
         @checkpoint
         def XyZ(y, Z, rule):
@@ -179,7 +182,7 @@ class PCFG(PCFG_base):
             y = y.unsqueeze(-1)
             b_n_yz = (y + Z).reshape(batch, n, NT * T, d)
             b_n_x = contract(b_n_yz.unsqueeze(2) + rule[:, None, :, :, None], dim=-2)
-            b_n_x = torch.cat([b_n_x.new_zeros(*b_n_x.shape[:-1], 1).fill_(-1e9), b_n_x[..., :-1]], dim=-1)
+            b_n_x = torch.cat([b_n_x.new_zeros(*b_n_x.shape[:-1], 1).fill_(-1e9), b_n_x], dim=-1)
             return b_n_x
 
 
@@ -190,13 +193,13 @@ class PCFG(PCFG_base):
             Z_term = terms[:, w - 1:, None, :]
 
             if w == 2:
-                diagonal_copy_(s, Xyz(Y_term, Z_term, X_y_z) + span_indicator[:, torch.arange(n), torch.arange(n) + w].unsqueeze(-2), w)
+                diagonal_copy_depth(s, Xyz(Y_term, Z_term, X_y_z) + span_indicator[:, torch.arange(n), torch.arange(n) + w, None, :w+1], w, w+1)
                 continue
 
-            x = terms.new_zeros(3, batch, n, NT, D).fill_(-1e9)
+            x = terms.new_zeros(3, batch, n, NT, w+1).fill_(-1e9)
 
-            Y = stripe(s, n, w - 1, (0, 1)).clone()
-            Z = stripe(s, n, w - 1, (1, w), 0).clone()
+            Y = stripe(s, n, w - 1, (0, 1))[..., :w].clone()
+            Z = stripe(s, n, w - 1, (1, w), 0)[..., :w].clone()
 
             if w > 3:
                 x[0].copy_(XYZ(Y, Z, X_Y_Z))
@@ -204,7 +207,7 @@ class PCFG(PCFG_base):
             x[1].copy_(XYz(Y, Z_term, X_Y_z))
             x[2].copy_(XyZ(Y_term, Z, X_y_Z))
 
-            diagonal_copy_(s, contract(x, dim=0) + span_indicator[:, torch.arange(n), torch.arange(n) + w].unsqueeze(-2), w)
+            diagonal_copy_depth(s, contract(x, dim=0) + span_indicator[:, torch.arange(n), torch.arange(n) + w, None, :w+1], w, w+1)
 
         logZ = contract(s[torch.arange(batch), 0, lens] + root.unsqueeze(-1), dim=-2)
 
