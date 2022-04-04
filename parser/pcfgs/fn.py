@@ -59,7 +59,7 @@ def stripe_grammar_rules(x, n, w, offset=0):
                             stride=new_stride, storage_offset= offset*stride[1])
 
 
-def diagonal_copy_depth(x, y, w, d):
+def diagonal_copy_depth_old(x, y, w, d):
     x, seq_len = x.contiguous(), x.size(1)
     stride, numel = list(x.stride()), x[:, 0, 0].numel()
     new_stride = []
@@ -69,12 +69,33 @@ def diagonal_copy_depth(x, y, w, d):
         new_stride.extend(stride[3:])
         x.as_strided(size=(x.shape[0], seq_len - w,  *list(x.shape[3:-1]), d),
                      stride=new_stride,
-                     storage_offset= w * stride[2]
+                     storage_offset=(w * stride[2])
                      ).copy_(y)
     else:
         x.as_strided(size=(x.shape[0], seq_len - w),
                      stride=new_stride,
-                     storage_offset=w * stride[2]
+                     storage_offset=(w * stride[2])
+                     ).copy_(y)
+
+
+def diagonal_copy_depth(x, y, w, d):
+    x, seq_len = x.contiguous(), x.size(1)
+    stride, numel = list(x.stride()), x[:, 0, 0].numel()
+    new_stride = []
+    new_stride.append(stride[0])
+    new_stride.append(stride[1] + stride[2])
+    min_d, max_d = d
+    d_size = max_d - min_d + 1
+    if len(x.shape) > 3:
+        new_stride.extend(stride[3:])
+        x.as_strided(size=(x.shape[0], seq_len - w,  *list(x.shape[3:-1]), d_size),
+                     stride=new_stride,
+                     storage_offset=(w * stride[2] + min_d * stride[-1])
+                     ).copy_(y)
+    else:
+        x.as_strided(size=(x.shape[0], seq_len - w),
+                     stride=new_stride,
+                     storage_offset=(w * stride[2] + min_d * stride[-1])
                      ).copy_(y)
 
 def diagonal_copy_(x, y, w):
