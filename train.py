@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
 import argparse
-import multiprocessing
 import os
 from time import sleep
 from parser.cmds import Evaluate, Train
@@ -22,8 +21,9 @@ def train(args2):
     args.update(args2.__dict__)
 
     print(f"Set the device with ID {args.device} visible")
-    os.environ['CUDA_VISIBLE_DEVICES'] = args.device
-    args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    # os.environ['CUDA_VISIBLE_DEVICES'] = args.device
+    args.device = f'cuda:{args.device}' if torch.cuda.is_available() else 'cpu'
+    torch.cuda.set_device(args.device)
 
     config_path = Path(args.conf  if args.conf else args2.load_from_dir + "/config.yaml")
     config_name = config_path.stem
@@ -65,6 +65,8 @@ def train_manager(args, event):
     event.clear()
 
 def multi_train(args):
+    import multiprocessing as mp
+    mp.set_start_method('spawn', force=True)
     from multiprocessing import Pool, Manager
     n_device = args.n_device
     n_models = args.n_models

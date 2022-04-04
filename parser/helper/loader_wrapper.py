@@ -39,7 +39,7 @@ class DataPrefetcher:
     def __init__(self, loader, device, init=False):
         self.loader = LoaderWrapper(loader,device)
         self.iter = None
-        self.stream = torch.cuda.Stream()
+        self.stream = torch.cuda.Stream(device=device)
 
         if init:
             self.iter = iter(self.loader)
