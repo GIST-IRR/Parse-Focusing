@@ -95,26 +95,28 @@ def create_dataset_from_trees(trees, depth=False, cnf='none', collapse=False):
     depth_left = []
     depth_right = []
     for tree in trees:
+        if collapse:
+            tree = collapse_unary(tree, collapsePOS=True)
         token = tree.pos()
         word, pos = zip(*token)
         word_array.append(word)
         pos_array.append(pos)
         gold_trees.append(factorize(tree))
         if cnf == 'both':
-            left_tree = tree_transform(tree, factor='left', collapse=collapse)
+            left_tree = tree_to_cnf(tree, factor='left')
             gold_trees_left.append(factorize(left_tree))
-            right_tree = tree_transform(tree, factor='right', collapse=collapse)
+            right_tree = tree_to_cnf(tree, factor='right')
             gold_trees_right.append(factorize(right_tree))
             if depth:
                 depth_left.append(left_tree.height())
                 depth_right.append(right_tree.height())
         elif cnf == 'left':
-            left_tree = tree_transform(tree, factor='left', collapse=collapse)
+            left_tree = tree_to_cnf(tree, factor='left')
             gold_trees_left.append(factorize(left_tree))
             if depth:
                 depth_left.append(left_tree.height())
         elif cnf == 'right':
-            right_tree = tree_transform(tree, factor='right', collapse=collapse)
+            right_tree = tree_to_cnf(tree, factor='right')
             gold_trees_right.append(factorize(right_tree))
             if depth:
                 depth_right.append(right_tree.height())
