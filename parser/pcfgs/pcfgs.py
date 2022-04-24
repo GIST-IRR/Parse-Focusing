@@ -1,33 +1,94 @@
 import torch
-from parser.pcfgs.fn import  stripe, diagonal_copy_, diagonal, checkpoint
+import torch.nn.functional as F
+from torch_scatter import scatter_logsumexp, scatter_max
+from parser.pcfgs.fn import  stripe, diagonal_copy_depth, diagonal_copy_, diagonal_depth, diagonal, checkpoint
 
 class PCFG_base():
 
+    def get_depth_index(self, d, device=None):
+        if not hasattr(self, 'index_cache'):
+            self.index_cache = {}
+        if d in self.index_cache:
+            index = self.index_cache[d]
+        else:
+            index = torch.maximum(
+                torch.arange(d).unsqueeze(1).expand(d, d),
+                torch.arange(d).unsqueeze(0).expand(d, d)).reshape(-1).to(device)
+            self.index_cache[d] = index
+        return index
+
+    @checkpoint
+    def get_depth_index_inside(self, d, device=None):
+        if not hasattr(self, 'index_cache_inside'):
+            self.index_cache_inside = {}
+        if d in self.index_cache_inside:
+            index = self.index_cache_inside[d]
+        else:
+            index = []
+            for i in range(1, d+1):
+                tmp = torch.maximum(
+                    torch.arange(i).unsqueeze(1).expand(i, d+1-i),
+                    torch.arange(d+1-i).unsqueeze(0).expand(i, d+1-i)
+                )
+                tmp = F.pad(tmp, (0, i-1, 0, d-i), value=d).reshape(-1)
+                index.append(tmp)
+            index = torch.stack(index, dim=0).reshape(-1)
+            self.index_cache_inside[d] = index
+        return index.to(device)
+
+    def get_depth_range(self, d, device=None):
+        if not hasattr(self, 'range_cache'):
+            self.range_cache = {}
+        if d in self.range_cache:
+            range = self.range_cache[d]
+        else:
+            min = (torch.tensor(d).log2().ceil().long() + 1).to(device)
+            max = torch.tensor(d).to(device)
+            range = (min, max)
+            self.range_cache[d] = range
+        return range
+
     def _inside(self):
+        raise NotImplementedError
+
+    def _inside_depth(self):
         raise NotImplementedError
 
     def inside(self, rules, lens):
         return self._inside(rules, lens)
 
     @torch.enable_grad()
-    def decode(self, rules, lens, viterbi=False, mbr=False):
-        return self._inside(rules=rules, lens=lens, viterbi=viterbi, mbr=mbr)
+    def decode(self, rules, lens, viterbi=False, mbr=False, depth=False):
+        if depth:
+            return self._inside_depth(rules=rules, lens=lens, viterbi=viterbi, mbr=mbr)
+        else:
+            return self._inside(rules=rules, lens=lens, viterbi=viterbi, mbr=mbr)
 
 
-    def _get_prediction(self, logZ, span_indicator, lens, mbr=False):
+    def _get_prediction(self, logZ, span_indicator, lens, mbr=False, depth=False):
         batch, seq_len = span_indicator.shape[:2]
         prediction = [[] for _ in range(batch)]
+        if depth:
+            ds = span_indicator.shape[-1]
+            for i in range(len(prediction)):
+                prediction[i] = [[] for _ in range(ds)]
         # to avoid some trivial corner cases.
         if seq_len >= 3:
             assert logZ.requires_grad
             logZ.sum().backward()
             marginals = span_indicator.grad
             if mbr:
-                return self._cky_zero_order(marginals.detach(), lens)
+                if depth:
+                    return self._cky_zero_order_depth(marginals.detach(), lens)
+                else:
+                    return self._cky_zero_order(marginals.detach(), lens)
             else:
                 viterbi_spans = marginals.nonzero().tolist()
                 for span in viterbi_spans:
-                    prediction[span[0]].append((span[1], span[2]))
+                    if depth:
+                        prediction[span[0]][span[3]].append((span[1], span[2]))
+                    else:
+                        prediction[span[0]].append((span[1], span[2]))
         return prediction
 
 
@@ -62,6 +123,63 @@ class PCFG_base():
         p = p.tolist()
         lens = lens.tolist()
         spans = [backtrack(p[i], 0, length) for i, length in enumerate(lens)]
+        return spans
+
+    @torch.no_grad()
+    def _cky_zero_order_depth(self, marginals, lens):
+        batch = marginals.shape[0]
+        N = marginals.shape[-1]
+        s = marginals.new_zeros(*marginals.shape).fill_(-1e9)
+        p = marginals.new_zeros(*marginals.shape).long()
+        diagonal_copy_(s, diagonal(marginals, 1), 1)
+        for w in range(2, N):
+            min_d, max_d = self.get_depth_range(w, device=marginals.device)
+            n = N - w
+            starts = p.new_tensor(range(n))
+
+            Y = stripe(s, n, w - 1, (0, 1))[..., 1:w]
+            Z = stripe(s, n, w - 1, (1, w), 0)[..., 1:w]
+
+            YZ = (Y.unsqueeze(-1) + Z.unsqueeze(-2))
+            X, split = scatter_max(
+                YZ.reshape(batch, n, -1),
+                self.get_depth_index_inside(w-1, Y.device)
+            )
+            if w != 2:
+                X = X[..., :-1]
+                split = split[..., :-1]
+
+            x = torch.cat([X.new_zeros(batch, n, 1), X], dim=-1) + diagonal_depth(marginals, w, (1, w))
+            split = torch.cat([split.new_zeros(batch, n, 1), split], dim=-1)
+
+            diagonal_copy_depth(s, x, w, (1, w))
+            diagonal_copy_depth(p, split + YZ.stride()[2]*(starts[None, :, None] + 1), w, (1, w))
+
+        def backtrack_depth(p, i, j, d):
+            if j == i + 1:
+                return [(i, j)]
+            split, ld, rd = index_to_split(p[i][j][d], j-i)
+            ltree = backtrack_depth(p, i, split, ld)
+            rtree = backtrack_depth(p, split, j, rd)
+            return [(i, j)] + ltree + rtree
+
+        def index_to_split(i, d):
+            d = d-1
+            stride = (d*d, d, 1)
+            split = i // stride[0]
+            i = i - split*stride[0]
+            ld = i // stride[1]
+            i = i - ld*stride[1]
+            rd = i
+            return split, ld+1, rd+1
+
+        p = p.tolist()
+        lens = lens.tolist()
+        spans = []
+        min_d, max_d = self.get_depth_range(N-1)
+        for i, length in enumerate(lens):
+            spans.append([backtrack_depth(p[i], 0, length, j) for j in range(min_d, max_d+1)])
+
         return spans
 
     def get_plus_semiring(self, viterbi):

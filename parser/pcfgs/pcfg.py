@@ -5,16 +5,25 @@ from torch_scatter import scatter_logsumexp
 
 
 class PCFG(PCFG_base):
-    def get_depth_index(self, d, device=None):
+    def get_depth_index_grid(self, y, z, device=None):
         if not hasattr(self, 'index_cache'):
             self.index_cache = {}
-        if d in self.index_cache:
-            index = self.index_cache[d]
+        if y in self.index_cache:
+            if z in self.index_cache[y]:
+                index = self.index_cache[y][z]
+            else:
+                index = torch.maximum(
+                    torch.arange(y).unsqueeze(1).expand(y, z),
+                    torch.arange(z).unsqueeze(0).expand(y, z)
+                ).reshape(-1).to(device)
+                self.index_cache[y][z] = index
         else:
             index = torch.maximum(
-                torch.arange(d).unsqueeze(1).expand(d, d),
-                torch.arange(d).unsqueeze(0).expand(d, d)).reshape(-1).to(device)
-            self.index_cache[d] = index
+                torch.arange(y).unsqueeze(1).expand(y, z),
+                torch.arange(z).unsqueeze(0).expand(y, z)
+            ).reshape(-1).to(device)
+            self.index_cache[y] = {}
+            self.index_cache[y][z] = index
         return index
 
     def get_depth_range(self, d, device=None):
@@ -126,7 +135,7 @@ class PCFG(PCFG_base):
             return {'partition': logZ}
 
     @torch.enable_grad()
-    def _inside_v2(self, rules, lens, viterbi=False, mbr=False):
+    def _inside_depth(self, rules, lens, viterbi=False, mbr=False):
         terms = rules['unary']
         rule = rules['rule']
         root = rules['root']
@@ -167,13 +176,20 @@ class PCFG(PCFG_base):
 
         @checkpoint
         def XYZ(Y, Z, rule, min_d, max_d):
-            n = Y.shape[1]
-            d = Y.shape[-1]
-            Y = Y[..., 2:]
-            Z = Z[..., 2:]
-            b_n_yz = contract(Y[:, :, 1:-1, :, None, :, None] + Z[:, :, 1:-1, None, :, None, :], dim=2).reshape(batch, n, NT * NT, -1)
-            b_n_yz = scatter_logsumexp(b_n_yz, self.get_depth_index(d - 2, device=b_n_yz.device))
-            b_n_x = contract(b_n_yz.unsqueeze(2) + rule[:, None, :, :, None], dim=-2)[..., min_d-3:max_d-3]
+            _, n, w, nt, d = Y.shape
+            Y = Y[:, :, 1:-1, :]
+            Z = Z[:, :, 1:-1, :]
+            b_n_yz = Y.new_zeros(*Y.shape[:-2], NT*NT, max_d-min_d+1).fill_(-1e9)
+            for i in range(w-2):
+                min_y, max_y = self.get_depth_range(i+2, Y.device)
+                min_z, max_z = self.get_depth_range(w-1-i, Z.device)
+                yz = (Y[:, :, i, :, None, min_y:max_y+1, None] + Z[:, :, i, None, :, None, min_z:max_z+1]).reshape(batch, n, NT*NT, -1)
+                yz = scatter_logsumexp(yz, self.get_depth_index_grid(max_y-min_y+1, max_z-min_z+1, yz.device))
+                min_yz = torch.maximum(min_y, min_z) + 1
+                max_yz = torch.maximum(max_y, max_z) + 1
+                b_n_yz[:, :, i, :, min_yz-min_d:max_yz-max_d].copy_(yz)
+            b_n_yz = contract(b_n_yz, dim=2)
+            b_n_x = contract(b_n_yz.unsqueeze(2) + rule[:, None, :, :, None], dim=-2)[..., :-1]
             return b_n_x
 
         @checkpoint
@@ -204,7 +220,6 @@ class PCFG(PCFG_base):
             min_d, max_d = self.get_depth_range(w, device=terms.device)
             d_size = max_d - min_d +1
             if w == 2:
-                # diagonal_copy_depth_old(s, Xyz(Y_term, Z_term, X_y_z) + span_indicator[:, torch.arange(n), torch.arange(n) + w, None, :w+1], w, w+1)
                 diagonal_copy_depth(
                     s,
                     Xyz(Y_term, Z_term, X_y_z) + span_indicator[:, torch.arange(n), torch.arange(n) + w, None, min_d:max_d+1],
