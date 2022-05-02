@@ -1,8 +1,11 @@
 import torch
+import torch.distributions as dist
+from torch import dsmm
 import torch.nn as nn
 from parser.modules.res import ResLayer
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 from ..pcfgs.pcfg import PCFG
+from torch.profiler import record_function
 
 class CompoundPCFG(nn.Module):
     def __init__(self, args, dataset):
@@ -38,7 +41,7 @@ class CompoundPCFG(nn.Module):
 
         self.enc_emb = nn.Embedding(self.V, self.w_dim)
 
-        self.enc_rnn = nn.LSTM(self.w_dim, self.h_dim, bidirectional=True, num_layers=1, batch_first=True)
+        self.enc_rnn = nn.LSTM(self.w_dim, self.h_dim, bidirectional=True, num_layers=1, batch_first=True, device=self.device)
 
         self.enc_out = nn.Linear(self.h_dim * 2, self.z_dim * 2)
 
@@ -58,7 +61,6 @@ class CompoundPCFG(nn.Module):
             for p in self.root_mlp.parameters():
                 p.requires_grad = False
         self._initialize()
-
 
     def _initialize(self):
         for p in self.parameters():
@@ -139,41 +141,107 @@ class CompoundPCFG(nn.Module):
                 'rule': rule,
                 'kl': kl(mean, lvar).sum(1)}
 
-    def loss(self, input, partition=False, span=0):
+    def loss(self, input, partition=False, max_depth=0):
+        self.partition = partition
+        # with record_function("rule_setup"):
         rules = self.forward(input)
-        min_d = input['seq_len'].log2().ceil().long().min() + 1
-        # result =  self.pcfg._inside(rules=rules, lens=input['seq_len'])
-        result = self.pcfg._inside_v2(rules=rules, lens=input['seq_len'])
-        result['partition'] = result['partition'][:, min_d:]
+        self.rules = rules
         # Partition function
         if partition:
-            self.pf = self.pcfg._partition_function(rules=rules, lens=input['seq_len'], mode=self.mode, depth_output='full')[:, min_d+2:]
-            result['partition'] = result['partition'] - self.pf
-            # result['partition'] = result['partition'] - self.pf
-            # dr = input['seq_len'].log2().ceil().long() - input['seq_len']
-            # result['partition'] = result['partition'] - (self.pf + dr.log())
-            # result['partition'] = result['partition'] - (self.pf/dr)
-            # result['partition'] = self.pf.new_tensor([2]).log() + result['partition'] - (self.pf.exp() + 1).log()
-            result['partition'] = result['partition'].logsumexp(-1)
+            # self.pf = self.pcfg._partition_function(rules=rules, lens=input['seq_len'], mode=self.mode, depth_output='fit')
+            # result['partition'] = result['partition'] - self.pf  # normal
 
+            # depth-conditioned inside algorithm
+            max_d = input['seq_len'].max()
+            min_d = input['seq_len'].min().log2().ceil().long().item() + 1
+            # with record_function("inside_algorithm"):
+            # result = self.pcfg.inside(rules=rules, lens=input['seq_len'], depth=True)
+            # result['partition'] = result['partition'][:, min_d:max_d+1]
+
+            result = self.pcfg.inside(rules=rules, lens=input['seq_len'], depth=False)
+
+            # partition function approximation
+            # with record_function("PF_approximation"):
+            if max_depth == 0:
+                lens = input['seq_len']
+            else:
+                lens = max_depth
+            # self.pf = self.pcfg._partition_function(rules=rules, lens=input['seq_len'], mode=self.mode, depth_output='full')
+            self.pf = self.pcfg._partition_function(rules=rules, lens=lens, mode=self.mode, depth_output='full')
+            # remain = torch.cat([self.pf[:, 2:min_d], self.pf[:, max_d+1:]], dim=1)
+            self.pf = self.pf[:, min_d:max_d+1]
+
+            # Entropy Calculation
+            # tau = 0.1 
+            log_p_d = result['partition']
+            # log_p_d = result['partition'] - result['partition'].logsumexp(-1).unsqueeze(-1) # p(d|w, G)
+            # cat = dist.categorical.Categorical(logits=log_p_d)
+            # self.ent = cat.entropy()
+            # ent = torch.where(self.ent > tau * self.ent.new_tensor([max_d-min_d+1]).log(), self.ent, -self.ent)
+
+            # PF entropy
+            # log_p_d = self.pf - self.pf.logsumexp(-1).unsqueeze(-1)
+            # cat = dist.categorical.Categorical(logits=log_p_d)
+            # ent = cat.entropy()
+
+            # Renormalization
+            result['partition'] = result['partition'] - self.pf.logsumexp(-1)
+            # result['partition'] = (result['partition'] - self.pf).logsumexp(-1)
+            # result['partition'] = (result['partition'] - self.pf).sum(-1) + ent  # maximization = to uniform
+            # result['partition'] = (result['partition'] - self.pf).sum(-1) - self.ent  # minimization = to one-hot
+        else:
+            # result =  self.pcfg._inside(rules=rules, lens=input['seq_len'])
+
+            result = self.pcfg.inside(rules=rules, lens=input['seq_len'], depth=False)
+            # min_d = input['seq_len'].min().log2().ceil().long().item() + 1
+            # result['partition'] = result['partition'][:, min_d:]
+
+            log_p_d = result['partition']
+            # log_p_d = result['partition'] - result['partition'].logsumexp(-1).unsqueeze(-1) # p(d|w, G)
+            # cat = dist.categorical.Categorical(logits=log_p_d)
+            # self.ent = cat.entropy()
+
+            # result['partition'] = result['partition'].logsumexp(-1)
+
+        # depth-conditioned inside algorithm
         loss =  (-result['partition'] + rules['kl']).mean()
-        return loss
+        return loss, log_p_d
 
 
     def evaluate(self, input, decode_type, depth=0, **kwargs):
+        if not hasattr(self, 'partition'):
+            self.partition = False
+        # partition = self.partition
+        partition = False
+        # partition = True
+
         rules = self.forward(input, evaluating=True)
         if decode_type == 'viterbi':
-            result = self.pcfg.decode(rules=rules, lens=input['seq_len'], viterbi=True, mbr=False)
+            result = self.pcfg.decode(rules=rules, lens=input['seq_len'], viterbi=True, mbr=False, depth=partition)
         elif decode_type == 'mbr':
-            result = self.pcfg.decode(rules=rules, lens=input['seq_len'], viterbi=False, mbr=True)
+            result = self.pcfg.decode(rules=rules, lens=input['seq_len'], viterbi=False, mbr=True, depth=partition)
         else:
             raise NotImplementedError
 
         if depth > 0:
-            # p = self.pcfg._partition_function(rules, depth, mode='depth', depth_output='full').exp()
-            # pp = torch.cat([p.new_zeros(p.shape[0], 1), p[:, :-1]], dim=1)
-            # result['depth'] = p - pp
-            result['depth'] = self.pcfg._partition_function(rules, depth, mode='depth', depth_output='full').exp()
+            # max_depth = max_d if depth < max_d else depth
+            result['depth'] = self.pcfg._partition_function(rules, depth, mode='depth', depth_output='full')
+            if partition:
+                min_d = input['seq_len'].log2().ceil().long().min() + 1
+                max_d = input['seq_len'].max()
+                batch, _ = result['partition'].shape
+                result['partition'] = (result['partition'][:, min_d:max_d+1] - result['depth'][:, min_d:max_d+1])
+                idx = result['partition'].argmax(-1)
+
+                result['partition'] = result['partition'][torch.arange(batch), idx]
+
+                # result['prediction_o'] = [result['prediction'][i][tmp_idx[i]] for i in range(batch)] # original prediction without normal.
+                # result['prediction'] = [result['prediction'][i][torch.randint(0, max_d-min_d+1, (1,))] for i in range(batch)] # random prediction
+                # result['prediction'] = [result['prediction'][i][(torch.randn(1)+((max_d-min_d)/2).cpu()).clamp(0, max_d-min_d).round().long()] for i in range(batch)]
+                # result['prediction_o'] = _result['prediction']
+                # result['prediction'] = [result['prediction'][i][idx[i]] for i in range(batch)]
+
+            result['depth'] = result['depth'].exp()
             
         result['partition'] -= rules['kl']
         return result

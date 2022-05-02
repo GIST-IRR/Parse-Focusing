@@ -1,4 +1,28 @@
 from nltk import Tree
+import torch
+
+def min_depth_for_len(length):
+    return length.min().log2().ceil().long().item() + 1
+
+def max_depth_for_len(length):
+    return length.max().long().item()
+
+def range_depth_for_len(length):
+    return min_depth_for_len(length), max_depth_for_len(length)
+
+def depth_to_onehot(length, depth):
+    batch = length.shape[0]
+    min_d, max_d = range_depth_for_len(length)
+    size = max_d - min_d + 1
+    idx = depth - min_d
+    result = length.new_zeros((batch, size))
+    result[torch.arange(batch), idx] = 1
+    return result.float()
+
+def depth_to_index(length, depth):
+    min_d = min_depth_for_len(length)
+    idx = depth - min_d
+    return idx
 
 def depth_from_span(span):
     tree = span_to_tree(span)

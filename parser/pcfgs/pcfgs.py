@@ -1,40 +1,45 @@
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
-from torch_scatter import scatter_logsumexp, scatter_max
+from torch_scatter import scatter_max
 from parser.pcfgs.fn import  stripe, diagonal_copy_depth, diagonal_copy_, diagonal_depth, diagonal, checkpoint
 
-class PCFG_base():
-
-    def get_depth_index(self, d, device=None):
+class PCFG_base(nn.Module):
+    def get_depth_index(self, y, z, device=None):
         if not hasattr(self, 'index_cache'):
             self.index_cache = {}
-        if d in self.index_cache:
-            index = self.index_cache[d]
+        if y in self.index_cache:
+            if z in self.index_cache[y]:
+                index = self.index_cache[y][z]
+            else:
+                index = torch.maximum(
+                    torch.arange(y).unsqueeze(1).expand(y, z),
+                    torch.arange(z).unsqueeze(0).expand(y, z)
+                )
+                self.index_cache[y][z] = index
         else:
             index = torch.maximum(
-                torch.arange(d).unsqueeze(1).expand(d, d),
-                torch.arange(d).unsqueeze(0).expand(d, d)).reshape(-1).to(device)
-            self.index_cache[d] = index
-        return index
-
-    @checkpoint
-    def get_depth_index_inside(self, d, device=None):
-        if not hasattr(self, 'index_cache_inside'):
-            self.index_cache_inside = {}
-        if d in self.index_cache_inside:
-            index = self.index_cache_inside[d]
+                torch.arange(y).unsqueeze(1).expand(y, z),
+                torch.arange(z).unsqueeze(0).expand(y, z)
+            )
+            self.index_cache[y] = {}
+            self.index_cache[y][z] = index
+        if device:
+            return index.to(device)
         else:
-            index = []
-            for i in range(1, d+1):
-                tmp = torch.maximum(
-                    torch.arange(i).unsqueeze(1).expand(i, d+1-i),
-                    torch.arange(d+1-i).unsqueeze(0).expand(i, d+1-i)
-                )
-                tmp = F.pad(tmp, (0, i-1, 0, d-i), value=d).reshape(-1)
-                index.append(tmp)
-            index = torch.stack(index, dim=0).reshape(-1)
-            self.index_cache_inside[d] = index
-        return index.to(device)
+            return index
+
+    def get_depth_index_grid(self, d, device=None):
+        index = []
+        for i in range(1, d+1):
+            tmp = self.get_depth_index(i, d+1-i)
+            tmp = F.pad(tmp, (0, i-1, 0, d-i), value=d).reshape(-1)
+            index.append(tmp)
+        index = torch.stack(index, dim=0).reshape(-1)
+        if device:
+            return index.to(device)
+        else:
+            return index
 
     def get_depth_range(self, d, device=None):
         if not hasattr(self, 'range_cache'):
@@ -54,8 +59,11 @@ class PCFG_base():
     def _inside_depth(self):
         raise NotImplementedError
 
-    def inside(self, rules, lens):
-        return self._inside(rules, lens)
+    def inside(self, rules, lens, depth=False):
+        if depth:
+            return self._inside_depth(rules, lens)
+        else:
+            return self._inside(rules, lens)
 
     @torch.enable_grad()
     def decode(self, rules, lens, viterbi=False, mbr=False, depth=False):
@@ -143,7 +151,7 @@ class PCFG_base():
             YZ = (Y.unsqueeze(-1) + Z.unsqueeze(-2))
             X, split = scatter_max(
                 YZ.reshape(batch, n, -1),
-                self.get_depth_index_inside(w-1, Y.device)
+                self.get_depth_index_grid(w-1, Y.device)
             )
             if w != 2:
                 X = X[..., :-1]
@@ -255,7 +263,7 @@ class PCFG_base():
         return predicted_arc
 
     @torch.enable_grad()
-    def depth_partition_function(self, rules, lens, mode=None, span=0):
+    def depth_partition_function_old(self, rules, lens, mode=None, span=0):
         rule = rules['rule']
         root = rules['root']
         batch, N, NT_T, _ = rule.shape
@@ -292,7 +300,7 @@ class PCFG_base():
 
 
     @torch.enable_grad()
-    def depth_partition_function_v2(self, rules, lens, mode=None, span=0):
+    def depth_partition_function(self, rules, lens, mode=None, span=0, withRootTerm=False):
         rule = rules['rule']
         root = rules['root']
         batch, NT, NT_T, _ = rule.shape
@@ -313,8 +321,8 @@ class PCFG_base():
             r = (rule + r[:, None, :]).logsumexp(dim)
             return r
         
-        # Shorteset parse tree depth: ROOT - NT - T - w (minimum depth 4)
-        # without root and words, minimum depth 2.
+        # Shorteset parse tree depth w/ root&term: ROOT - NT - T - w (minimum depth 4)
+        # Shorteset parse tree depth w/o root&term: NT - T (minimum depth 2)
         # so we can not get any probability for the smaller depth than 2
         for d in range(2, D):
             if d == 2:
@@ -322,12 +330,12 @@ class PCFG_base():
                 x = X_y_z.logsumexp(2)
             else:
                 x = rule.new_zeros(5, batch, NT).fill_(-1e9)
-                # NT -> d-1 tree, d-1 tree
                 zp = t[:, d-1]
+                # NT -> d-1 tree, d-1 tree
                 x[0].copy_(contract(X_Y_Z, zp, zp))
                 # NT -> d-1 tree, 1~d-2 tree
-                # NT -> 1~d-2 tree, d-1 tree
                 x[1].copy_(contract(X_Y_z, zp, bias))
+                # NT -> 1~d-2 tree, d-1 tree
                 x[2].copy_(contract(X_y_Z, bias, zp))
                 if d > 3:
                     st = t[:, 2:d-1].clone().logsumexp(1)
@@ -338,7 +346,8 @@ class PCFG_base():
 
         if mode == 'full':
             r = (root.unsqueeze(1) + t).logsumexp(2)
-            r = torch.cat([r.new_zeros(batch, 2).fill_(-1e9), r], dim=1)
+            if withRootTerm:
+                r = torch.cat([r.new_zeros(batch, 2).fill_(-1e9), r], dim=1)
         else:
             r = root + t.logsumexp(1)
             r = r.logsumexp(1)
@@ -429,6 +438,6 @@ class PCFG_base():
         if mode == 'depth':
             if type(lens) == int:
                 lens = rules['root'].new_tensor([lens]).long()
-            return self.depth_partition_function_v2(rules, lens, depth_output, span)
+            return self.depth_partition_function(rules, lens, depth_output, span)
         elif mode == 'span':
             return self.span_partition_function(rules, lens)

@@ -1,43 +1,10 @@
 from parser.pcfgs.pcfgs import PCFG_base
-from parser.pcfgs.fn import stripe, diagonal_copy_depth_old, diagonal_copy_depth, diagonal_copy_, diagonal, checkpoint
+from parser.pcfgs.fn import stripe, diagonal_copy_depth, diagonal_copy_, diagonal, checkpoint
 import torch
 from torch_scatter import scatter_logsumexp
 
 
 class PCFG(PCFG_base):
-    def get_depth_index_grid(self, y, z, device=None):
-        if not hasattr(self, 'index_cache'):
-            self.index_cache = {}
-        if y in self.index_cache:
-            if z in self.index_cache[y]:
-                index = self.index_cache[y][z]
-            else:
-                index = torch.maximum(
-                    torch.arange(y).unsqueeze(1).expand(y, z),
-                    torch.arange(z).unsqueeze(0).expand(y, z)
-                ).reshape(-1).to(device)
-                self.index_cache[y][z] = index
-        else:
-            index = torch.maximum(
-                torch.arange(y).unsqueeze(1).expand(y, z),
-                torch.arange(z).unsqueeze(0).expand(y, z)
-            ).reshape(-1).to(device)
-            self.index_cache[y] = {}
-            self.index_cache[y][z] = index
-        return index
-
-    def get_depth_range(self, d, device=None):
-        if not hasattr(self, 'range_cache'):
-            self.range_cache = {}
-        if d in self.range_cache:
-            range = self.range_cache[d]
-        else:
-            min = (torch.tensor(d).log2().ceil().long() + 1).to(device)
-            max = torch.tensor(d).to(device)
-            range = (min, max)
-            self.range_cache[d] = range
-        return range
-
     @torch.enable_grad()
     def _inside(self, rules, lens, viterbi=False, mbr=False):
         terms = rules['unary']
@@ -184,7 +151,7 @@ class PCFG(PCFG_base):
                 min_y, max_y = self.get_depth_range(i+2, Y.device)
                 min_z, max_z = self.get_depth_range(w-1-i, Z.device)
                 yz = (Y[:, :, i, :, None, min_y:max_y+1, None] + Z[:, :, i, None, :, None, min_z:max_z+1]).reshape(batch, n, NT*NT, -1)
-                yz = scatter_logsumexp(yz, self.get_depth_index_grid(max_y-min_y+1, max_z-min_z+1, yz.device))
+                yz = scatter_logsumexp(yz, self.get_depth_index(max_y-min_y+1, max_z-min_z+1, yz.device).reshape(-1))
                 min_yz = torch.maximum(min_y, min_z) + 1
                 max_yz = torch.maximum(max_y, max_z) + 1
                 b_n_yz[:, :, i, :, min_yz-min_d:max_yz-max_d].copy_(yz)

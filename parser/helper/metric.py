@@ -46,6 +46,8 @@ class UF1(Metric):
 
 
     def __call__(self, preds, golds, depth=None, lens=False, nonterminal=False):
+        if isinstance(depth, torch.Tensor):
+            depth = depth.tolist()
         if depth:
             zipped = zip(preds, golds, depth)
         else:
