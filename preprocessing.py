@@ -96,27 +96,29 @@ def create_dataset_from_trees(trees, depth=False, cnf='none', collapse=False):
     depth_right = []
     for tree in trees:
         if collapse:
-            tree = collapse_unary(tree, collapsePOS=True)
+            col_tree = collapse_unary(tree, collapsePOS=True)
+        else:
+            col_tree = tree
         token = tree.pos()
         word, pos = zip(*token)
         word_array.append(word)
         pos_array.append(pos)
         gold_trees.append(factorize(tree))
         if cnf == 'both':
-            left_tree = tree_to_cnf(tree, factor='left')
+            left_tree = tree_to_cnf(col_tree, factor='left')
             gold_trees_left.append(factorize(left_tree))
-            right_tree = tree_to_cnf(tree, factor='right')
+            right_tree = tree_to_cnf(col_tree, factor='right')
             gold_trees_right.append(factorize(right_tree))
             if depth:
                 depth_left.append(left_tree.height())
                 depth_right.append(right_tree.height())
         elif cnf == 'left':
-            left_tree = tree_to_cnf(tree, factor='left')
+            left_tree = tree_to_cnf(col_tree, factor='left')
             gold_trees_left.append(factorize(left_tree))
             if depth:
                 depth_left.append(left_tree.height())
         elif cnf == 'right':
-            right_tree = tree_to_cnf(tree, factor='right')
+            right_tree = tree_to_cnf(col_tree, factor='right')
             gold_trees_right.append(factorize(right_tree))
             if depth:
                 depth_right.append(right_tree.height())
@@ -150,27 +152,32 @@ def redistribution(args):
     valid_file = os.path.join(args.dir, f'{args.prefix}-valid.txt')
     test_file = os.path.join(args.dir, f'{args.prefix}-test.txt')
 
-    # Check save path and create if not exist
-    print(f'[INFO] Dataset are saved on {args.cache_path}.')
-    if not os.path.exists(args.cache_path):
-        print(f'[INFO] Creating save path...', end='')
-        os.makedirs(args.cache_path, exist_ok=True)
-        print(f'DONE.')
-
     # Load dataset
     print('[INFO] Load dataset...', end='')
     train_trees = get_trees(train_file)
+    print('train...', end='')
     valid_trees = get_trees(valid_file)
+    print('valid...', end='')
     test_trees = get_trees(test_file)
-    print('DONE.')
+    print('test...DONE.')
 
+    # Define criterion for splitting
     def depth(tree):
         return tree.height()
     def length(tree):
         return len(tree.leaves())
-    def cnf_depth(tree):
-        t = copy.deepcopy(tree)
-        t.chomsky_normal_form()
+    def bin_depth(tree):
+        t = tree.copy(deep=True)
+        t.chomsky_normal_form(factor=args.factor)
+        return t.height()
+    def col_depth(tree):
+        t = tree.copy(deep=True)
+        t.collapse_unary()
+        return t.height()
+    def bin_col_depth(tree):
+        t = tree.copy(deep=True)
+        t.collapse_unary()
+        t.chomsky_normal_form(factor=args.factor)
         return t.height()
 
     # Check splitting criterion
@@ -179,15 +186,24 @@ def redistribution(args):
             criterion = depth
         elif args.criterion == 'length':
             criterion = length
-        elif args.criterion == 'cnf-depth':
-            criterion = cnf_depth
+        elif args.criterion == 'binarized-depth':
+            criterion = bin_depth
+        elif args.criterion == 'collapsed-depth':
+            criterion = col_depth
+        elif args.criterion == 'binarized-collapsed-depth':
+            criterion = bin_col_depth
 
         split = [len(train_trees), len(train_trees) + len(valid_trees)]
         trees = [*train_trees, *valid_trees, *test_trees]
 
+        # Sort and split
         print(f'Dataset distributed based on {args.criterion} of trees.')
-        print(f'[INFO] Sorting...')
-        trees = sorted(trees, key=lambda t : criterion(t))
+        # Check sort order
+        if args.reverse:
+            print(f'[INFO] Sorting by reversed order...')
+        else:
+            print(f'[INFO] Sorting...')
+        trees = sorted(trees, key=lambda t : criterion(t), reverse=args.reverse)
         train_trees = trees[:split[0]]
         valid_trees = trees[split[0]:split[1]]
         test_trees = trees[split[1]:]
@@ -195,28 +211,25 @@ def redistribution(args):
     # Print dataset status
     print(
         f'train set contain : total {len(train_trees)}\n'
-        f'\tdepth: {min(map(depth, train_trees))} - {max(map(depth, train_trees))}\n'
-        f'\tCNF-depth: {min(map(cnf_depth, train_trees))} - {max(map(cnf_depth, train_trees))}'
+        f'\t{args.criterion}: {min(map(criterion, train_trees))} - {max(map(criterion, train_trees))}'
     )
     print(
         f'valid set contain : total {len(valid_trees)}\n'
-        f'\tdepth: {min(map(depth, valid_trees))} - {max(map(depth, valid_trees))}\n'
-        f'\tCNF-depth: {min(map(cnf_depth, valid_trees))} - {max(map(cnf_depth, valid_trees))}'
+        f'\t{args.criterion}: {min(map(criterion, valid_trees))} - {max(map(criterion, valid_trees))}'
     )
     print(
         f'test set contain : total {len(test_trees)}\n'
-        f'\tdepth: {min(map(depth, test_trees))} - {max(map(depth, test_trees))}\n'
-        f'\tCNF-depth: {min(map(cnf_depth, test_trees))} - {max(map(cnf_depth, test_trees))}'
+        f'\t{args.criterion}: {min(map(criterion, test_trees))} - {max(map(criterion, test_trees))}'
     )
 
-    # Change trees to CNF trees If option is true
-    # if args.cnf != 'none':
-    #     print('[INFO] Convert trees to CNF trees...', end='')
-    #     train_trees = trees_to_cnf(train_trees)
-    #     valid_trees = trees_to_cnf(valid_trees)
-    #     test_trees = trees_to_cnf(test_trees)
-    #     print('DONE.')
+    # Check save path and create if not exist
+    print(f'[INFO] Dataset will be saved on {args.cache_path}.')
+    if not os.path.exists(args.cache_path):
+        print(f'[INFO] Creating save path...', end='')
+        os.makedirs(args.cache_path, exist_ok=True)
+        print(f'DONE.')
 
+    # Saving datasets
     print('[INFO] Saving dataset...', end='')
     result = create_dataset_from_trees(train_trees, depth=args.target_depth, cnf=args.cnf, collapse=args.collapse)
     with open(os.path.join(args.cache_path, f"{args.prefix}-{args.criterion}-train.pkl"), "wb") as f:
@@ -241,10 +254,12 @@ if __name__ == '__main__':
     parser.add_argument('--dir', required=True)
     parser.add_argument('--prefix', default='english')
     parser.add_argument('--cache_path', default='data/')
-    parser.add_argument('--criterion', default='standard', choices=['standard', 'depth', 'length', 'cnf-depth'])
+    parser.add_argument('--criterion', default='standard', choices=['standard', 'depth', 'length', 'binarized-depth', 'collapsed-depth', 'binarized-collapsed-depth'])
+    parser.add_argument('--factor', default='left', choices=['left', 'right'])
     parser.add_argument('--cnf', default='none', choices=['none', 'left', 'right', 'both'])
     parser.add_argument('--target_depth', action='store_true', default=False)
     parser.add_argument('--collapse', action='store_true', default=False)
+    parser.add_argument('--reverse', action='store_true', default=False)
     args = parser.parse_args()
 
     redistribution(args)
