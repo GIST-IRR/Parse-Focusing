@@ -20,7 +20,7 @@ def main(eval_dep, decode_type, load_from_dir, device):
     args.load_from_dir = load_from_dir
     print(f"Set the device with ID {args.device} visible")
     os.environ['CUDA_VISIBLE_DEVICES'] = args.device
-    args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    args.device = f'cuda:{args.device}' if torch.cuda.is_available() else 'cpu'
 
     command = Evaluate()
     command(args, decode_type=decode_type, eval_dep=eval_dep)

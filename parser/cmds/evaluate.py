@@ -24,7 +24,7 @@ class Evaluate(CMD):
         dataset = DataModule(args)
         self.model = get_model(args.model, dataset)
         best_model_path = self.args.load_from_dir + "/best.pt"
-        self.model.load_state_dict(torch.load(str(best_model_path)))
+        self.model.load_state_dict(torch.load(str(best_model_path), map_location=self.device))
         print('successfully load')
 
         eval_depth = self.args.test.eval_depth if hasattr(self.args.test, 'eval_depth') else False
@@ -77,6 +77,14 @@ class Evaluate(CMD):
         self.estimated_depth = dict(sorted(self.estimated_depth.items()))
         for k, v in self.estimated_depth.items():
             self.writer.add_scalar('test/estimated_depth', v/metric_f1.n, k)
+
+        self.estimated_depth_by_length = dict(sorted(self.estimated_depth_by_length.items()))
+        for k in self.estimated_depth_by_length.keys():
+            self.estimated_depth_by_length[k] = dict(sorted(self.estimated_depth_by_length[k].items()))
+        for k, v in self.estimated_depth_by_length.items():
+            total = sum(v.values())
+            for d, n in v.items():
+                self.writer.add_scalar(f'test/predicted_depth_by_length_{k}', n/total, d)
 
         self.writer.flush()
         self.writer.close()
