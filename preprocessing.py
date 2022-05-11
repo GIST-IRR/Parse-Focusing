@@ -180,6 +180,24 @@ def redistribution(args):
         t.chomsky_normal_form(factor=args.factor)
         return t.height()
 
+    # Status Test
+    print('[INFO] Status Test')
+    print(
+        f'train set contain : total {len(train_trees)}\n'
+        f'\tLength: {min(map(length, train_trees))} - {max(map(length, train_trees))}\n'
+        f'\tDepth: {min(map(depth, train_trees))} - {max(map(depth, train_trees))}'
+    )
+    print(
+        f'valid set contain : total {len(valid_trees)}\n'
+        f'\tLength: {min(map(length, valid_trees))} - {max(map(length, valid_trees))}\n'
+        f'\tDepth: {min(map(depth, valid_trees))} - {max(map(depth, valid_trees))}'
+    )
+    print(
+        f'test set contain : total {len(test_trees)}\n'
+        f'\tLength: {min(map(length, test_trees))} - {max(map(length, test_trees))}\n'
+        f'\tDepth: {min(map(depth, test_trees))} - {max(map(depth, test_trees))}'
+    )
+
     # Check splitting criterion
     if args.criterion != 'standard':
         if args.criterion == 'depth':
@@ -208,19 +226,19 @@ def redistribution(args):
         valid_trees = trees[split[0]:split[1]]
         test_trees = trees[split[1]:]
 
-    # Print dataset status
-    print(
-        f'train set contain : total {len(train_trees)}\n'
-        f'\t{args.criterion}: {min(map(criterion, train_trees))} - {max(map(criterion, train_trees))}'
-    )
-    print(
-        f'valid set contain : total {len(valid_trees)}\n'
-        f'\t{args.criterion}: {min(map(criterion, valid_trees))} - {max(map(criterion, valid_trees))}'
-    )
-    print(
-        f'test set contain : total {len(test_trees)}\n'
-        f'\t{args.criterion}: {min(map(criterion, test_trees))} - {max(map(criterion, test_trees))}'
-    )
+        # Print dataset status
+        print(
+            f'train set contain : total {len(train_trees)}\n'
+            f'\t{args.criterion}: {min(map(criterion, train_trees))} - {max(map(criterion, train_trees))}'
+        )
+        print(
+            f'valid set contain : total {len(valid_trees)}\n'
+            f'\t{args.criterion}: {min(map(criterion, valid_trees))} - {max(map(criterion, valid_trees))}'
+        )
+        print(
+            f'test set contain : total {len(test_trees)}\n'
+            f'\t{args.criterion}: {min(map(criterion, test_trees))} - {max(map(criterion, test_trees))}'
+        )
 
     # Check save path and create if not exist
     print(f'[INFO] Dataset will be saved on {args.cache_path}.')
