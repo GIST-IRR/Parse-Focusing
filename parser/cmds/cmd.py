@@ -4,7 +4,6 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 from parser.helper.metric import LikelihoodMetric,  UF1, LossMetric, UAS
-from torch.profiler import profile, record_function, ProfilerActivity
 
 from utils import depth_from_span, depth_to_onehot, depth_to_index
 
@@ -16,11 +15,6 @@ class CMD(object):
         self.model.train()
         t = tqdm(loader, total=int(len(loader)),  position=0, leave=True)
         train_arg = self.args.train
-        total_loss = 0
-        entropy = 0
-
-        # cross-entropy
-        celoss = nn.CrossEntropyLoss()
 
         for x, _ in t:
             if not hasattr(train_arg, 'warmup_epoch') and hasattr(train_arg, 'warmup'):
@@ -28,14 +22,7 @@ class CMD(object):
                     self.partition = True
 
             self.optimizer.zero_grad()
-            # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True, 
-            #             profile_memory=True) as prof:
-            #     with record_function("model_inference"):
-            loss, p_d = self.model.loss(x, partition=self.partition)
-            # print(prof.key_averages().table(sort_by="cuda_memory_usage", row_limit=10))
-
-            # ce = celoss(p_d, depth_to_index(x['seq_len'], x['depth_left']-2))
-            # loss = loss + ce
+            loss = self.model.loss(x, partition=self.partition)
 
             loss.backward()
             if train_arg.clip > 0:
@@ -43,21 +30,16 @@ class CMD(object):
                                      train_arg.clip)
             self.optimizer.step()
             # writer
-            total_loss += loss.item()
-            # entropy += self.model.ent.mean().item()
+            self.total_loss += loss.item()
 
             if hasattr(self.model, 'pf'):
                 self.pf = self.pf + self.model.pf.detach().cpu().tolist() if self.model.pf.numel() != 1 else [self.model.pf.detach().cpu().tolist()]
-            if self.iter != 0 and self.iter % 100 == 0:
-                # self.writer.add_scalar('train/depth', self.model.depth, self.iter)
-                self.writer.add_scalar('train/loss', total_loss/100, self.iter)
-                # self.writer.add_scalar('train/entropy', entropy/100, self.iter)
-                total_loss = 0
-                # entropy = 0
+            if self.iter != 0 and self.iter % 500 == 0:
+                self.writer.add_scalar('train/loss', self.total_loss/100, self.iter)
+                self.total_loss = 0
                 if hasattr(self.model, 'pf'):
                     self.writer.add_histogram('train/partition_number', self.model.pf.detach().cpu(), self.iter)
                     self.pf = []
-                self.writer.add_histogram('train/parse_tree_prob', p_d.detach().cpu(), self.iter)
                 self.writer.add_histogram('train/root_prob', self.model.rules['root'].reshape(x['word'].shape[0], -1).detach().cpu(), self.iter)
                 self.writer.add_histogram('train/rule_prob', self.model.rules['rule'].reshape(x['word'].shape[0], -1).detach().cpu(), self.iter)
             # Check total iteration
@@ -91,11 +73,6 @@ class CMD(object):
         self.estimated_depth_by_length = {}
         for x, y in t:
             result = model.evaluate(x, decode_type=decode_type, eval_dep=eval_dep, depth=depth)
-            
-            # selection
-            # batch = x['word'].shape[0]
-            # min_d = x['seq_len'].min().log2().ceil().long() + 3
-            # result['prediction'] = [result['prediction'][i][y['depth_left'][i]-min_d] for i in range(batch)]
 
             s_depth = [depth_from_span(r) for r in result['prediction']]
             for d in s_depth:
