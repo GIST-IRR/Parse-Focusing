@@ -3,9 +3,9 @@ save_dir : 'log'
 # seed: 3435
 
 data:
-  train_file: 'data/standard.nocnf/english-standard-train.pkl'
-  val_file: 'data/standard.nocnf/english-standard-valid.pkl'
-  test_file: 'data/standard.nocnf/english-standard-test.pkl'
+  train_file: 'data/polish.length.both/polish-length-train.pkl'
+  val_file: 'data/polish.length.both/polish-length-valid.pkl'
+  test_file: 'data/polish.length.both/polish-length-test.pkl'
   vocab_type: 'max_size'
   vocab_size: 10000
   min_freq: 2
@@ -19,24 +19,20 @@ model:
   w_dim: 512
   h_dim: 512
   z_dim: 64
-  depth: 0
-  mode: 'depth'
+  mode: 'length'
 
 train:
   batch_size: 4
   max_epoch: 10
   max_len: 40
+  min_len: 0
   #whether to use curriculum learning stragegy.
   curriculum: 1
   start_len: 30
   increment: 1
   patience: 5
   clip: 3
-  init_depth: 45
-  min_depth: 15
-  depth_curriculum: 'linear'
-  warmup: 10000
-
+  warmup_epoch: 3
 
 test:
   batch_size: 8
@@ -44,6 +40,10 @@ test:
   bucket: 32
   decode: 'mbr'
   sampler: 'batch'
+  depth: 40
+  eval_depth: True
+  left_binarization: True
+  right_binarization: True
 
 optimizer:
   name: 'adam'
