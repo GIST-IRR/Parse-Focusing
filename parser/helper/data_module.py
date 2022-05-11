@@ -74,9 +74,9 @@ class DataModule():
 
         # Depth of trees
         try:
-            train_dataset.add_field("depth", train_data['depth'],padder=None,ignore_type=True)
-            val_dataset.add_field("depth", val_data['depth'],padder=None,ignore_type=True)
-            test_dataset.add_field("depth", test_data['depth'],padder=None,ignore_type=True)
+            train_dataset.add_field("depth", train_data['depth'],padder=None)
+            val_dataset.add_field("depth", val_data['depth'],padder=None)
+            test_dataset.add_field("depth", test_data['depth'],padder=None)
             train_dataset.set_target("depth")
             val_dataset.set_target("depth")
             test_dataset.set_target("depth")
@@ -85,20 +85,23 @@ class DataModule():
             pass
 
         try:
-            train_dataset.add_field("depth_left", train_data['depth_left'],padder=None,ignore_type=True)
-            val_dataset.add_field("depth_left", val_data['depth_left'],padder=None,ignore_type=True)
-            test_dataset.add_field("depth_left", test_data['depth_left'],padder=None,ignore_type=True)
+            train_dataset.add_field("depth_left", train_data['depth_left'],padder=None)
+            val_dataset.add_field("depth_left", val_data['depth_left'],padder=None)
+            test_dataset.add_field("depth_left", test_data['depth_left'],padder=None)
             train_dataset.set_target("depth_left")
             val_dataset.set_target("depth_left")
             test_dataset.set_target("depth_left")
+            train_dataset.set_input("depth_left")
+            val_dataset.set_input("depth_left")
+            test_dataset.set_input("depth_left")
         except:
             print('No depth of left binarization')
             pass
 
         try:
-            train_dataset.add_field("depth_right", train_data['depth_right'],padder=None,ignore_type=True)
-            val_dataset.add_field("depth_right", val_data['depth_right'],padder=None,ignore_type=True)
-            test_dataset.add_field("depth_right", test_data['depth_right'],padder=None,ignore_type=True)
+            train_dataset.add_field("depth_right", train_data['depth_right'],padder=None)
+            val_dataset.add_field("depth_right", val_data['depth_right'],padder=None)
+            test_dataset.add_field("depth_right", test_data['depth_right'],padder=None)
             train_dataset.set_target("depth_right")
             val_dataset.set_target("depth_right")
             test_dataset.set_target("depth_right")
@@ -152,8 +155,9 @@ class DataModule():
         # For L-PCFGs.
 
 
-    def train_dataloader(self, max_len=40):
+    def train_dataloader(self, max_len=40, min_len=0):
         args = self.hparams.train
+        train_dataset = self.train_dataset.drop(lambda x:x['seq_len']<min_len, inplace=False)
         train_dataset = self.train_dataset.drop(lambda x:x['seq_len']>max_len, inplace=False)
         train_sampler = ByLengthSampler(dataset= train_dataset, batch_size=args.batch_size)
         return DataSetIter(dataset=train_dataset, batch_sampler= train_sampler)
