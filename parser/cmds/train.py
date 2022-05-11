@@ -28,7 +28,7 @@ class Train(CMD):
         start_epoch = 1
         if hasattr(args, 'pretrained_model'):
             with open(args.pretrained_model, 'rb') as f:
-                checkpoint = torch.load(f)
+                checkpoint = torch.load(f, map_location=self.device)
                 start_epoch = checkpoint['epoch'] + 1
                 self.model.load_state_dict(checkpoint['model'])
 

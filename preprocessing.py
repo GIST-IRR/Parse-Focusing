@@ -1,5 +1,5 @@
 from ntpath import join
-from nltk import Tree
+from nltk.tree import Tree
 import argparse
 import pickle
 
