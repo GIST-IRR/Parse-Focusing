@@ -135,6 +135,10 @@ class CompoundPCFG(nn.Module):
 
 
         root, unary, rule = roots(), terms(), rules()
+        # # temp
+        # root.retain_grad()
+        # unary.retain_grad()
+        # rule.retain_grad()
 
         return {'unary': unary,
                 'root': root,
@@ -148,99 +152,41 @@ class CompoundPCFG(nn.Module):
         self.rules = rules
         # Partition function
         if partition:
-            # self.pf = self.pcfg._partition_function(rules=rules, lens=input['seq_len'], mode=self.mode, depth_output='fit')
-            # result['partition'] = result['partition'] - self.pf  # normal
-
             # depth-conditioned inside algorithm
             max_d = input['seq_len'].max()
             min_d = input['seq_len'].min().log2().ceil().long().item() + 1
-            # with record_function("inside_algorithm"):
-            # result = self.pcfg.inside(rules=rules, lens=input['seq_len'], depth=True)
-            # result['partition'] = result['partition'][:, min_d:max_d+1]
-
             result = self.pcfg.inside(rules=rules, lens=input['seq_len'], depth=False)
 
             # partition function approximation
-            # with record_function("PF_approximation"):
             if max_depth == 0:
                 lens = input['seq_len']
             else:
                 lens = max_depth
-            # self.pf = self.pcfg._partition_function(rules=rules, lens=input['seq_len'], mode=self.mode, depth_output='full')
-            self.pf = self.pcfg._partition_function(rules=rules, lens=lens, mode=self.mode, depth_output='full')
-            # remain = torch.cat([self.pf[:, 2:min_d], self.pf[:, max_d+1:]], dim=1)
-            self.pf = self.pf[:, min_d:max_d+1]
-
-            # Entropy Calculation
-            # tau = 0.1 
-            log_p_d = result['partition']
-            # log_p_d = result['partition'] - result['partition'].logsumexp(-1).unsqueeze(-1) # p(d|w, G)
-            # cat = dist.categorical.Categorical(logits=log_p_d)
-            # self.ent = cat.entropy()
-            # ent = torch.where(self.ent > tau * self.ent.new_tensor([max_d-min_d+1]).log(), self.ent, -self.ent)
-
-            # PF entropy
-            # log_p_d = self.pf - self.pf.logsumexp(-1).unsqueeze(-1)
-            # cat = dist.categorical.Categorical(logits=log_p_d)
-            # ent = cat.entropy()
+            # self.pf = self.pcfg._partition_function(rules=rules, lens=lens, mode=self.mode, depth_output='full')[:, min_d:max_d+1]
+            # self.pf_d = self.pcfg._partition_function(rules=rules, lens=lens, mode='depth', depth_output='full')[:, min_d:max_d+1]
+            self.pf = self.pcfg._partition_function(rules=rules, lens=lens, mode=self.mode)
 
             # Renormalization
-            result['partition'] = result['partition'] - self.pf.logsumexp(-1)
-            # result['partition'] = (result['partition'] - self.pf).logsumexp(-1)
-            # result['partition'] = (result['partition'] - self.pf).sum(-1) + ent  # maximization = to uniform
-            # result['partition'] = (result['partition'] - self.pf).sum(-1) - self.ent  # minimization = to one-hot
+            result['partition'] = result['partition'] - self.pf
         else:
-            # result =  self.pcfg._inside(rules=rules, lens=input['seq_len'])
-
             result = self.pcfg.inside(rules=rules, lens=input['seq_len'], depth=False)
-            # min_d = input['seq_len'].min().log2().ceil().long().item() + 1
-            # result['partition'] = result['partition'][:, min_d:]
-
-            log_p_d = result['partition']
-            # log_p_d = result['partition'] - result['partition'].logsumexp(-1).unsqueeze(-1) # p(d|w, G)
-            # cat = dist.categorical.Categorical(logits=log_p_d)
-            # self.ent = cat.entropy()
-
-            # result['partition'] = result['partition'].logsumexp(-1)
 
         # depth-conditioned inside algorithm
         loss =  (-result['partition'] + rules['kl']).mean()
-        return loss, log_p_d
+        return loss
 
 
-    def evaluate(self, input, decode_type, depth=0, **kwargs):
-        if not hasattr(self, 'partition'):
-            self.partition = False
-        # partition = self.partition
-        partition = False
-        # partition = True
-
+    def evaluate(self, input, decode_type, depth=0, depth_mode=False, **kwargs):
         rules = self.forward(input, evaluating=True)
         if decode_type == 'viterbi':
-            result = self.pcfg.decode(rules=rules, lens=input['seq_len'], viterbi=True, mbr=False, depth=partition)
+            result = self.pcfg.decode(rules=rules, lens=input['seq_len'], viterbi=True, mbr=False, depth=depth_mode)
         elif decode_type == 'mbr':
-            result = self.pcfg.decode(rules=rules, lens=input['seq_len'], viterbi=False, mbr=True, depth=partition)
+            result = self.pcfg.decode(rules=rules, lens=input['seq_len'], viterbi=False, mbr=True, depth=depth_mode)
         else:
             raise NotImplementedError
 
         if depth > 0:
-            # max_depth = max_d if depth < max_d else depth
-            result['depth'] = self.pcfg._partition_function(rules, depth, mode='depth', depth_output='full')
-            if partition:
-                min_d = input['seq_len'].log2().ceil().long().min() + 1
-                max_d = input['seq_len'].max()
-                batch, _ = result['partition'].shape
-                result['partition'] = (result['partition'][:, min_d:max_d+1] - result['depth'][:, min_d:max_d+1])
-                idx = result['partition'].argmax(-1)
-
-                result['partition'] = result['partition'][torch.arange(batch), idx]
-
-                # result['prediction_o'] = [result['prediction'][i][tmp_idx[i]] for i in range(batch)] # original prediction without normal.
-                # result['prediction'] = [result['prediction'][i][torch.randint(0, max_d-min_d+1, (1,))] for i in range(batch)] # random prediction
-                # result['prediction'] = [result['prediction'][i][(torch.randn(1)+((max_d-min_d)/2).cpu()).clamp(0, max_d-min_d).round().long()] for i in range(batch)]
-                # result['prediction_o'] = _result['prediction']
-                # result['prediction'] = [result['prediction'][i][idx[i]] for i in range(batch)]
-
+            result['depth'] = self.pcfg._partition_function(rules, depth, mode='length', depth_output='full')
             result['depth'] = result['depth'].exp()
             
         result['partition'] -= rules['kl']

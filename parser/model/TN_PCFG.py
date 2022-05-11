@@ -89,7 +89,7 @@ class TNPCFG(nn.Module):
         return loss
 
 
-    def evaluate(self, input, decode_type, **kwargs):
+    def evaluate(self, input, decode_type, depth=0, **kwargs):
         rules = self.forward(input)
         if decode_type == 'viterbi':
             assert NotImplementedError
@@ -98,9 +98,9 @@ class TNPCFG(nn.Module):
         else:
             raise NotImplementedError
 
-        if self.depth > 0:
+        if depth > 0:
             pf = []
-            for d in range(self.depth + 1):
+            for d in range(depth + 1):
                 p = self.pcfg._partition_function(rules=rules, depth=d).unsqueeze(1).exp()
                 if d == 0:
                     pf.append(p)
