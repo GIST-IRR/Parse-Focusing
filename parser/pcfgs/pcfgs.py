@@ -333,13 +333,15 @@ class PCFG_base(nn.Module):
                 zp = t[:, d-1]
                 # NT -> d-1 tree, d-1 tree
                 x[0].copy_(contract(X_Y_Z, zp, zp))
-                # NT -> d-1 tree, 1~d-2 tree
+                # NT -> d-1 tree, 1 tree
                 x[1].copy_(contract(X_Y_z, zp, bias))
-                # NT -> 1~d-2 tree, d-1 tree
+                # NT -> 1 tree, d-1 tree
                 x[2].copy_(contract(X_y_Z, bias, zp))
                 if d > 3:
                     st = t[:, 2:d-1].clone().logsumexp(1)
+                    # NT -> d-1 tree, d-2~2 tree
                     x[3].copy_(contract(X_Y_Z, zp, st))
+                    # NT -> d-2~2 tree, d-1 tree
                     x[4].copy_(contract(X_Y_Z, st, zp))
                 x = x.logsumexp(0)
             t[:, d].copy_(x)
@@ -355,15 +357,13 @@ class PCFG_base(nn.Module):
 
 
     @torch.enable_grad()
-    def span_partition_function(self, rules, lens, viterbi=False, mbr=False):
-        terms = rules['unary']
+    def length_partition_function(self, rules, lens, mode=None, viterbi=False, mbr=False):
         rule = rules['rule']
         root = rules['root']
 
-        batch, N, T = terms.shape
-        N += 1
-        NT = rule.shape[1]
-        S = NT + T
+        batch, NT, S, _ = rule.shape
+        T = S - NT
+        N = lens.max() + 1
 
         s = rule.new_zeros(batch, N, NT).fill_(-1e9)
         NTs = slice(0, NT)
@@ -374,7 +374,7 @@ class PCFG_base(nn.Module):
         X_Y_z = rule[:, :, NTs, Ts].reshape(batch, NT, NT * T)
         X_y_z = rule[:, :, Ts, Ts].reshape(batch, NT, T * T)
 
-        span_indicator = rule.new_zeros(batch, N).requires_grad_(viterbi or mbr)
+        # span_indicator = rule.new_zeros(batch, N).requires_grad_(viterbi or mbr)
 
         def contract(x, dim=-1):
             if viterbi:
@@ -415,10 +415,11 @@ class PCFG_base(nn.Module):
 
         for w in range(2, N):
             if w == 2:
-                s[:, w].copy_(Xyz(X_y_z) + span_indicator[:, w].unsqueeze(-1))
+                # s[:, w].copy_(Xyz(X_y_z) + span_indicator[:, w].unsqueeze(-1))
+                s[:, w].copy_(Xyz(X_y_z))
                 continue
 
-            x = terms.new_zeros(3, batch, NT).fill_(-1e9)
+            x = rule.new_zeros(3, batch, NT).fill_(-1e9)
 
             Y = s[:, 2:w].clone()
             Z = s[:, 2:w].flip(1).clone()
@@ -429,15 +430,19 @@ class PCFG_base(nn.Module):
             x[1].copy_(XYz(Y, X_Y_z))
             x[2].copy_(XyZ(Z, X_y_Z))
 
-            s[:, w].copy_(contract(x, dim=0) + span_indicator[:, w].unsqueeze(-1))
+            # s[:, w].copy_(contract(x, dim=0) + span_indicator[:, w].unsqueeze(-1))
+            s[:, w].copy_(contract(x, dim=0))
 
-        logZ = contract(s[torch.arange(batch), lens] + root)
+        if mode == 'full':
+            logZ = contract(s + root.unsqueeze(1))
+        else:
+            logZ = contract(s[torch.arange(batch), lens] + root)
         return logZ
 
-    def _partition_function(self, rules, lens, mode='span', depth_output=None, span=0):
+    def _partition_function(self, rules, lens, mode='length', depth_output=None, span=0):
+        if type(lens) == int:
+            lens = rules['root'].new_tensor([lens]).long()
         if mode == 'depth':
-            if type(lens) == int:
-                lens = rules['root'].new_tensor([lens]).long()
             return self.depth_partition_function(rules, lens, depth_output, span)
-        elif mode == 'span':
-            return self.span_partition_function(rules, lens)
+        elif mode == 'length':
+            return self.length_partition_function(rules, lens, depth_output)
