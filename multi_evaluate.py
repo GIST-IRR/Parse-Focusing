@@ -21,7 +21,7 @@ def multi_evaluate(args):
             cfg.load_from_dir = path
             print(f"Set the device with ID {args.device} visible")
             os.environ['CUDA_VISIBLE_DEVICES'] = args.device
-            cfg.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            cfg.device = f'cuda:{args.device}' if torch.cuda.is_available() else 'cpu'
 
             command = Evaluate()
             command(cfg, decode_type=args.decode_type, eval_dep=args.eval_dep)
