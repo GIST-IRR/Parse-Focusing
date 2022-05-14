@@ -15,7 +15,6 @@ class TNPCFG(nn.Module):
         self.s_dim = args.s_dim
         self.r = args.r_dim
         self.word_emb_size = args.word_emb_size
-        self.depth = args.depth
 
         ## root
         self.root_emb = nn.Parameter(torch.randn(1, self.s_dim))
@@ -36,6 +35,9 @@ class TNPCFG(nn.Module):
         self.parent_mlp = nn.Sequential(nn.Linear(rule_dim,rule_dim),nn.ReLU(),nn.Linear(rule_dim,self.r))
         self.left_mlp = nn.Sequential(nn.Linear(rule_dim,rule_dim), nn.ReLU(),nn.Linear(rule_dim,self.r))
         self.right_mlp = nn.Sequential(nn.Linear(rule_dim,rule_dim),nn.ReLU(),nn.Linear(rule_dim,self.r))
+
+        # Partition function
+        self.mode = args.mode if hasattr(args, 'mode') else None
 
     def update_depth(self, depth):
         self.depth = depth
@@ -77,12 +79,12 @@ class TNPCFG(nn.Module):
                 'right': right,
                 'kl': 0}
 
-    def loss(self, input):
+    def loss(self, input, partition=False, max_depth=0):
         rules = self.forward(input)
         result =  self.pcfg._inside(rules=rules, lens=input['seq_len'])
         # Partition function
-        if self.depth > 0:
-            self.pf = self.pcfg._partition_function(rules=rules, depth=self.depth)
+        if partition:
+            self.pf = self.pcfg.length_partition_function(rules, input['seq_len'])
             result['partition'] = result['partition'] - self.pf
 
         loss =  -result['partition'].mean()

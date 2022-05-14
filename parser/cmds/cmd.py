@@ -40,8 +40,10 @@ class CMD(object):
                 if hasattr(self.model, 'pf'):
                     self.writer.add_histogram('train/partition_number', self.model.pf.detach().cpu(), self.iter)
                     self.pf = []
-                self.writer.add_histogram('train/root_prob', self.model.rules['root'].reshape(x['word'].shape[0], -1).detach().cpu(), self.iter)
-                self.writer.add_histogram('train/rule_prob', self.model.rules['rule'].reshape(x['word'].shape[0], -1).detach().cpu(), self.iter)
+                # if hasattr(self.model.rules, 'root'):
+                #     self.writer.add_histogram('train/root_prob', self.model.rules['root'].reshape(x['word'].shape[0], -1).detach().cpu(), self.iter)
+                # if hasattr(self.model.rules, 'rule'):
+                #     self.writer.add_histogram('train/rule_prob', self.model.rules['rule'].reshape(x['word'].shape[0], -1).detach().cpu(), self.iter)
             # Check total iteration
             self.iter += 1
 
