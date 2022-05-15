@@ -101,14 +101,7 @@ class TNPCFG(nn.Module):
             raise NotImplementedError
 
         if depth > 0:
-            pf = []
-            for d in range(depth + 1):
-                p = self.pcfg._partition_function(rules=rules, depth=d).unsqueeze(1).exp()
-                if d == 0:
-                    pf.append(p)
-                else:
-                    pf.append(p - pp)
-                pp = p
-            result['depth'] = torch.cat(pf, dim=1)
+            result['depth'] = self.pcfg._partition_function(rules, depth, mode='length', depth_output='full')
+            result['depth'] = result['depth'].exp()
 
         return result

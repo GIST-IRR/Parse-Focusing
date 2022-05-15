@@ -137,7 +137,7 @@ class TDPCFG(PCFG_base):
         return super()._partition_function(rules, depth, mode=mode)
 
     @torch.enable_grad()
-    def _partition_function(self, rules, depth):
+    def depth_partition_function(self, rules, depth):
         eps = 1e-8
         terms = rules['unary']
         root = rules['root']
@@ -228,7 +228,8 @@ class TDPCFG(PCFG_base):
             return b_x
 
 
-        batch, N, *_ = unary.shape
+        batch, *_ = unary.shape
+        N = lens.max()
         N += 1
 
         left_term = transform_left_t(L_term)
