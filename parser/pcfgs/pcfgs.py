@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_scatter import scatter_max
+# from torch_scatter import scatter_max
 from parser.pcfgs.fn import  stripe, diagonal_copy_depth, diagonal_copy_, diagonal_depth, diagonal, checkpoint
 
 class PCFG_base(nn.Module):
@@ -133,62 +133,62 @@ class PCFG_base(nn.Module):
         spans = [backtrack(p[i], 0, length) for i, length in enumerate(lens)]
         return spans
 
-    @torch.no_grad()
-    def _cky_zero_order_depth(self, marginals, lens):
-        batch = marginals.shape[0]
-        N = marginals.shape[-1]
-        s = marginals.new_zeros(*marginals.shape).fill_(-1e9)
-        p = marginals.new_zeros(*marginals.shape).long()
-        diagonal_copy_(s, diagonal(marginals, 1), 1)
-        for w in range(2, N):
-            min_d, max_d = self.get_depth_range(w, device=marginals.device)
-            n = N - w
-            starts = p.new_tensor(range(n))
+    # @torch.no_grad()
+    # def _cky_zero_order_depth(self, marginals, lens):
+    #     batch = marginals.shape[0]
+    #     N = marginals.shape[-1]
+    #     s = marginals.new_zeros(*marginals.shape).fill_(-1e9)
+    #     p = marginals.new_zeros(*marginals.shape).long()
+    #     diagonal_copy_(s, diagonal(marginals, 1), 1)
+    #     for w in range(2, N):
+    #         min_d, max_d = self.get_depth_range(w, device=marginals.device)
+    #         n = N - w
+    #         starts = p.new_tensor(range(n))
 
-            Y = stripe(s, n, w - 1, (0, 1))[..., 1:w]
-            Z = stripe(s, n, w - 1, (1, w), 0)[..., 1:w]
+    #         Y = stripe(s, n, w - 1, (0, 1))[..., 1:w]
+    #         Z = stripe(s, n, w - 1, (1, w), 0)[..., 1:w]
 
-            YZ = (Y.unsqueeze(-1) + Z.unsqueeze(-2))
-            X, split = scatter_max(
-                YZ.reshape(batch, n, -1),
-                self.get_depth_index_grid(w-1, Y.device)
-            )
-            if w != 2:
-                X = X[..., :-1]
-                split = split[..., :-1]
+    #         YZ = (Y.unsqueeze(-1) + Z.unsqueeze(-2))
+    #         X, split = scatter_max(
+    #             YZ.reshape(batch, n, -1),
+    #             self.get_depth_index_grid(w-1, Y.device)
+    #         )
+    #         if w != 2:
+    #             X = X[..., :-1]
+    #             split = split[..., :-1]
 
-            x = torch.cat([X.new_zeros(batch, n, 1), X], dim=-1) + diagonal_depth(marginals, w, (1, w))
-            split = torch.cat([split.new_zeros(batch, n, 1), split], dim=-1)
+    #         x = torch.cat([X.new_zeros(batch, n, 1), X], dim=-1) + diagonal_depth(marginals, w, (1, w))
+    #         split = torch.cat([split.new_zeros(batch, n, 1), split], dim=-1)
 
-            diagonal_copy_depth(s, x, w, (1, w))
-            diagonal_copy_depth(p, split + YZ.stride()[2]*(starts[None, :, None] + 1), w, (1, w))
+    #         diagonal_copy_depth(s, x, w, (1, w))
+    #         diagonal_copy_depth(p, split + YZ.stride()[2]*(starts[None, :, None] + 1), w, (1, w))
 
-        def backtrack_depth(p, i, j, d):
-            if j == i + 1:
-                return [(i, j)]
-            split, ld, rd = index_to_split(p[i][j][d], j-i)
-            ltree = backtrack_depth(p, i, split, ld)
-            rtree = backtrack_depth(p, split, j, rd)
-            return [(i, j)] + ltree + rtree
+    #     def backtrack_depth(p, i, j, d):
+    #         if j == i + 1:
+    #             return [(i, j)]
+    #         split, ld, rd = index_to_split(p[i][j][d], j-i)
+    #         ltree = backtrack_depth(p, i, split, ld)
+    #         rtree = backtrack_depth(p, split, j, rd)
+    #         return [(i, j)] + ltree + rtree
 
-        def index_to_split(i, d):
-            d = d-1
-            stride = (d*d, d, 1)
-            split = i // stride[0]
-            i = i - split*stride[0]
-            ld = i // stride[1]
-            i = i - ld*stride[1]
-            rd = i
-            return split, ld+1, rd+1
+    #     def index_to_split(i, d):
+    #         d = d-1
+    #         stride = (d*d, d, 1)
+    #         split = i // stride[0]
+    #         i = i - split*stride[0]
+    #         ld = i // stride[1]
+    #         i = i - ld*stride[1]
+    #         rd = i
+    #         return split, ld+1, rd+1
 
-        p = p.tolist()
-        lens = lens.tolist()
-        spans = []
-        min_d, max_d = self.get_depth_range(N-1)
-        for i, length in enumerate(lens):
-            spans.append([backtrack_depth(p[i], 0, length, j) for j in range(min_d, max_d+1)])
+    #     p = p.tolist()
+    #     lens = lens.tolist()
+    #     spans = []
+    #     min_d, max_d = self.get_depth_range(N-1)
+    #     for i, length in enumerate(lens):
+    #         spans.append([backtrack_depth(p[i], 0, length, j) for j in range(min_d, max_d+1)])
 
-        return spans
+    #     return spans
 
     def get_plus_semiring(self, viterbi):
         if viterbi:
