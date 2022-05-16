@@ -15,7 +15,6 @@ class NeuralPCFG(nn.Module):
         self.V = len(dataset.word_vocab)
 
         self.s_dim = args.s_dim
-        self.depth = args.depth
 
         self.term_emb = nn.Parameter(torch.randn(self.T, self.s_dim))
         self.nonterm_emb = nn.Parameter(torch.randn(self.NT, self.s_dim))
