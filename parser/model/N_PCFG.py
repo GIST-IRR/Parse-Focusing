@@ -87,12 +87,17 @@ class NeuralPCFG(nn.Module):
         return -result['partition'].mean()
 
 
-    def evaluate(self, input, decode_type, **kwargs):
+    def evaluate(self, input, decode_type, depth=0, depth_mode=False, **kwargs):
         rules = self.forward(input, evaluating=True)
         if decode_type == 'viterbi':
-            return self.pcfg.decode(rules=rules, lens=input['seq_len'], viterbi=True, mbr=False)
+            result = self.pcfg.decode(rules=rules, lens=input['seq_len'], viterbi=True, mbr=False)
         elif decode_type == 'mbr':
-            return self.pcfg.decode(rules=rules, lens=input['seq_len'], viterbi=False, mbr=True)
+            result = self.pcfg.decode(rules=rules, lens=input['seq_len'], viterbi=False, mbr=True)
         else:
             raise NotImplementedError
 
+        if depth > 0:
+            result['depth'] = self.pcfg._partition_function(rules, depth, mode='length', depth_output='full')
+            result['depth'] = result['depth'].exp()
+
+        return result
