@@ -33,6 +33,8 @@ class NeuralPCFG(nn.Module):
 
         self.NT_T = self.NT + self.T
         self.rule_mlp = nn.Linear(self.s_dim, (self.NT_T) ** 2)
+        # Partition function
+        self.mode = args.mode if hasattr(args, 'mode') else None
 
         # I find this is important for neural/compound PCFG. if do not use this initialization, the performance would get much worser.
         self._initialize()
@@ -77,11 +79,11 @@ class NeuralPCFG(nn.Module):
                 'kl': torch.tensor(0, device=self.device)}
 
 
-    def loss(self, input):
+    def loss(self, input, partition=False):
         rules = self.forward(input)
         result =  self.pcfg._inside(rules=rules, lens=input['seq_len'])
-        if self.depth > 0:
-            pf = self.pcfg._partition_function(rules=rules, depth=self.depth)
+        if partition:
+            pf = self.pcfg._partition_function(rules=rules, lens=input['seq_len'], mode=self.mode)
             result['partition'] = result['partition'] - pf
         return -result['partition'].mean()
 
