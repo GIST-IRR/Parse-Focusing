@@ -23,7 +23,6 @@ def multi_evaluate(args):
             # os.environ['CUDA_VISIBLE_DEVICES'] = args.device
             cfg.device = f'cuda:{args.device}' if torch.cuda.is_available() else 'cpu'
 
-            os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
             command = Evaluate()
             command(cfg, decode_type=args.decode_type, eval_dep=args.eval_dep)
 
