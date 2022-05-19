@@ -1,12 +1,15 @@
 import torch
 import torch.nn as nn
 from parser.modules.res import ResLayer
+
+from parser.pcfgs.td_partition_function import TDPartitionFunction
 from ..pcfgs.tdpcfg import TDPCFG
 
 class TNPCFG(nn.Module):
     def __init__(self, args, dataset):
         super(TNPCFG, self).__init__()
         self.pcfg = TDPCFG()
+        self.part = TDPartitionFunction()
         self.device = dataset.device
         self.args = args
         self.NT = args.NT
@@ -42,6 +45,47 @@ class TNPCFG(nn.Module):
     def update_depth(self, depth):
         self.depth = depth
 
+    def get_grad(self):
+        grad = []
+        for p in self.parameters():
+            grad.append(p.grad.clone().reshape(-1))
+        return torch.cat(grad)
+
+    def set_grad(self, grad):
+        total_num = 0
+        for p in self.parameters():
+            num = p.grad.numel()
+            shape = p.grad.shape
+            p.grad = p.grad + grad[total_num:total_num+num].reshape(*shape)
+            total_num += num
+
+    def get_rules_grad(self):
+        b = self.rules['root'].shape[0]
+        return torch.cat([
+            self.rules['root'].grad.clone().reshape(b, -1),
+            self.rules['head'].grad.clone().reshape(b, -1),
+            self.rules['left'].grad.clone().reshape(b, -1),
+            self.rules['right'].grad.clone().reshape(b, -1),
+            self.rules['unary'].grad.clone().reshape(b, -1)
+        ], dim=-1)
+
+    def backward_rules(self, grad):
+        # head_shape = self.rules['head'].shape
+        # left_shape = self.rules['left'].shape
+        # right_shape = self.rules['right'].shape
+        # unary_shae = self.rules['unary'].shape
+        # self.rules['root'].backward(grad[:, :self.NT], retain_graph=True)
+        # self.rules['head'].backward(grad[:, self.NT:self.NT*(self.r+1)], retain_graph=True)
+        # self.rules['left'].backward(grad[:, self.NT*(self.r+1):(self.NT+self.T)*self.r], retain_graph=True)
+        # self.rules['right'].backward(grad[:, ], retain_graph=True)
+        # self.rules['unary'].backward(grad[:, self.NT*(1+self.NT_T**2):].reshape(*unary_shae), retain_graph=True)
+        total_num = 0
+        for r in ['root', 'head', 'left', 'right', 'unary']:
+            shape = self.rules[r].shape
+            size = self.rules[r][0].numel()
+            self.rules[r].backward(grad[:, total_num:total_num+size], retain_graph=True).reshape(*shape)
+            total_num += size
+
     def forward(self, input, **kwargs):
         x = input['word']
         b, n = x.shape[:2]
@@ -72,6 +116,14 @@ class TNPCFG(nn.Module):
 
         root, unary, (head, left, right) = roots(), terms(), rules()
 
+        # for gradient conflict by using gradients of rules
+        if self.training:
+            root.retain_grad()
+            unary.retain_grad()
+            head.retain_grad()
+            left.retain_grad()
+            right.retain_grad()
+
         return {'unary': unary,
                 'root': root,
                 'head': head,
@@ -79,17 +131,66 @@ class TNPCFG(nn.Module):
                 'right': right,
                 'kl': 0}
 
-    def loss(self, input, partition=False, max_depth=0):
-        rules = self.forward(input)
-        result = self.pcfg._inside(rules=rules, lens=input['seq_len'])
+    def loss(self, input, partition=False, soft=False):
+        self.rules = self.forward(input)
+        result = self.pcfg(self.rules, lens=input['seq_len'])
         # Partition function
         if partition:
-            # self.pf = self.pcfg.length_partition_function(rules, input['seq_len'])
-            self.pf = self.pcfg._partition_function(rules, input['seq_len'], mode=self.mode)
+            self.pf = self.part(self.rules, input['seq_len'], mode=self.mode)
+            if soft:
+                return -result['partition'].mean(), self.pf.mean()
             result['partition'] = result['partition'] - self.pf
+        return -result['partition'].mean()
 
-        loss =  -result['partition'].mean()
-        return loss
+    def rule_backward(self, loss, z_l, optimizer):
+        def batch_dot(x, y):
+            return (x*y).sum(-1, keepdims=True)
+        def projection(x, y):
+            return (batch_dot(x, y)/batch_dot(y, y))*y
+        # Get dL_w
+        loss.backward(retain_graph=True)
+        g_loss = self.get_rules_grad() # main vector
+        optimizer.zero_grad()
+        # Get dZ_l
+        z_l.backward(retain_graph=True)
+        g_z_l = self.get_rules_grad()
+        optimizer.zero_grad()
+        # oproj_{dL_w}{dZ_l} = dZ_l - proj_{dL_w}{dZ_l}
+        g_oproj = g_z_l - projection(g_z_l, g_loss)
+        # dL_BCLs = dL_w + oproj_{dL_w}{dZ_l}
+        g_r = g_loss + g_oproj
+        # Re-calculate soft BCL
+        self.backward_rules(g_r)
+
+    def param_backward(self, loss, z_l, optimizer):
+        def batch_dot(x, y):
+            return (x*y).sum(-1, keepdims=True)
+        def projection(x, y):
+            eps = 1e-9
+            return (batch_dot(x, y)/(batch_dot(y, y)+eps))*y
+        # Get dL_w
+        loss.backward(retain_graph=True)
+        g_loss = self.get_grad() # main vector
+        optimizer.zero_grad()
+        # Get dZ_l
+        z_l.backward(retain_graph=True)
+        g_z_l = self.get_grad()
+        optimizer.zero_grad()
+
+        # oproj_{dL_w}{dZ_l} = dZ_l - proj_{dL_w}{dZ_l}
+        # dL_BCLs = dL_w + oproj_{dL_w}{dZ_l}
+        # g_r = [g_l + g_z - projection(g_z, g_l) \
+        #     for g_l, g_z in zip(g_loss, g_z_l)]
+        g_oproj = g_z_l - projection(g_z_l, g_loss)
+        g_r = g_loss + g_oproj
+        # Re-calculate soft BCL
+        self.set_grad(g_r)
+
+    def soft_backward(self, loss, z_l, optimizer, mode='rule'):
+        if mode == 'rule':
+            self.rule_backward(loss, z_l, optimizer)
+        elif mode == 'parameter':
+            self.param_backward(loss, z_l, optimizer)
 
 
     def evaluate(self, input, decode_type, depth=0, **kwargs):

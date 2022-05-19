@@ -56,21 +56,23 @@ class PCFG_base(nn.Module):
     def _inside(self):
         raise NotImplementedError
 
-    def _inside_depth(self):
-        raise NotImplementedError
+    # def _inside_depth(self):
+    #     raise NotImplementedError
 
-    def inside(self, rules, lens, depth=False):
-        if depth:
-            return self._inside_depth(rules, lens)
-        else:
-            return self._inside(rules, lens)
+    def forward(self, rules, lens, depth=False):
+        # if depth:
+        #     return self._inside_depth(rules, lens)
+        # else:
+        #     return self._inside(rules, lens)
+        return self._inside(rules, lens)
 
     @torch.enable_grad()
     def decode(self, rules, lens, viterbi=False, mbr=False, depth=False):
-        if depth:
-            return self._inside_depth(rules=rules, lens=lens, viterbi=viterbi, mbr=mbr)
-        else:
-            return self._inside(rules=rules, lens=lens, viterbi=viterbi, mbr=mbr)
+        # if depth:
+        #     return self._inside_depth(rules=rules, lens=lens, viterbi=viterbi, mbr=mbr)
+        # else:
+        #     return self._inside(rules=rules, lens=lens, viterbi=viterbi, mbr=mbr)
+        return self._inside(rules=rules, lens=lens, viterbi=viterbi, mbr=mbr)
 
 
     def _get_prediction(self, logZ, span_indicator, lens, mbr=False, depth=False):
@@ -262,41 +264,41 @@ class PCFG_base(nn.Module):
             predicted_arc[a[0]].append((a[1] - 1, a[2] -1 ))
         return predicted_arc
 
-    @torch.enable_grad()
-    def depth_partition_function_old(self, rules, lens, mode=None, span=0):
-        rule = rules['rule']
-        root = rules['root']
-        batch, N, NT_T, _ = rule.shape
-        T = NT_T - N
+    # @torch.enable_grad()
+    # def depth_partition_function_old(self, rules, lens, mode=None, span=0):
+    #     rule = rules['rule']
+    #     root = rules['root']
+    #     batch, N, NT_T, _ = rule.shape
+    #     T = NT_T - N
 
-        D = lens.max() + span + 1
-        rule = rule.reshape(batch, N, -1)
-        bias = rule.new_zeros(batch, T)
-        t = rule.new_zeros(batch, D, N).fill_(-1e9)
+    #     D = lens.max() + span + 1
+    #     rule = rule.reshape(batch, N, -1)
+    #     bias = rule.new_zeros(batch, T)
+    #     t = rule.new_zeros(batch, D, N).fill_(-1e9)
 
-        # Shorteset parse tree depth: ROOT - NT - T - w (minimum depth 4)
-        # without root and words, minimum depth 2.
-        # so we can not get any probability for the smaller depth than 2
-        for d in range(2, D):
-            z_prev = torch.cat((t[:, d - 1], bias), dim=1)
-            z = (z_prev[:, :, None] + z_prev[:, None, :]).reshape(batch, -1)
-            z = (rule + z[:, None, :]).logsumexp(2)
-            z = torch.clamp(z, max=0)
-            t[:, d].copy_(z)
+    #     # Shorteset parse tree depth: ROOT - NT - T - w (minimum depth 4)
+    #     # without root and words, minimum depth 2.
+    #     # so we can not get any probability for the smaller depth than 2
+    #     for d in range(2, D):
+    #         z_prev = torch.cat((t[:, d - 1], bias), dim=1)
+    #         z = (z_prev[:, :, None] + z_prev[:, None, :]).reshape(batch, -1)
+    #         z = (rule + z[:, None, :]).logsumexp(2)
+    #         z = torch.clamp(z, max=0)
+    #         t[:, d].copy_(z)
 
-        if mode == 'full':
-            r = (root.unsqueeze(1) + t).logsumexp(2)
-            r = torch.cat([r.new_zeros(batch, 2).fill_(-1e9), r], dim=1)
-        elif mode == 'fit':
-            min_d = lens.log2().ceil().long()
-            max_d = lens + span
-            min_part = (root + t[torch.arange(batch), min_d]).logsumexp(1)
-            max_part = (root + t[torch.arange(batch), max_d]).logsumexp(1)
-            r = (max_part.exp() - min_part.exp()).log()
-            return r, max_d - min_d
-        else:
-            r = (root + t[torch.arange(batch), lens + span]).logsumexp(1)
-        return r
+    #     if mode == 'full':
+    #         r = (root.unsqueeze(1) + t).logsumexp(2)
+    #         r = torch.cat([r.new_zeros(batch, 2).fill_(-1e9), r], dim=1)
+    #     elif mode == 'fit':
+    #         min_d = lens.log2().ceil().long()
+    #         max_d = lens + span
+    #         min_part = (root + t[torch.arange(batch), min_d]).logsumexp(1)
+    #         max_part = (root + t[torch.arange(batch), max_d]).logsumexp(1)
+    #         r = (max_part.exp() - min_part.exp()).log()
+    #         return r, max_d - min_d
+    #     else:
+    #         r = (root + t[torch.arange(batch), lens + span]).logsumexp(1)
+    #     return r
 
 
     @torch.enable_grad()

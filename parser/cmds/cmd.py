@@ -22,9 +22,16 @@ class CMD(object):
                     self.partition = True
 
             self.optimizer.zero_grad()
-            loss = self.model.loss(x, partition=self.partition)
-
-            loss.backward()
+            
+            if self.partition and hasattr(train_arg, 'soft_loss'):
+                # Split loss
+                loss, z_l = self.model.loss(x, partition=self.partition, soft=True)
+                self.model.soft_backward(loss, z_l, self.optimizer, mode=train_arg.soft_loss)
+            else:
+                # Original
+                loss = self.model.loss(x, partition=self.partition)
+                loss.backward()
+            
             if train_arg.clip > 0:
                 nn.utils.clip_grad_norm_(self.model.parameters(),
                                      train_arg.clip)
