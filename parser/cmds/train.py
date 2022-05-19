@@ -100,6 +100,7 @@ class Train(CMD):
             log.info(f"{'dev ll:':6}   {dev_ll}")
 
             # F1 score for each epoch
+            self.writer.add_scalar('valid/Likelihood', dev_ll.score, epoch)
             self.writer.add_scalar('valid/F1', dev_f1_metric.sentence_uf1, epoch)
             self.writer.add_scalar('valid/F1_left', dev_left_metric.sentence_uf1, epoch)
             self.writer.add_scalar('valid/F1_right', dev_right_metric.sentence_uf1, epoch)
