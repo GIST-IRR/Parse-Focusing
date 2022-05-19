@@ -3,3 +3,4 @@ log/
 .vscode/
 *.pyc
 __pycache__/
+config/
