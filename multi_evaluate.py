@@ -8,7 +8,7 @@ import torch
 from parser.cmds import Evaluate
 
 def multi_evaluate(args):
-    files = os.listdir(args.load_from_dir)
+    files = sorted(os.listdir(args.load_from_dir))
     log_file = os.path.join(args.load_from_dir, f'{args.decode_type}-test.log')
     if os.path.exists(log_file):
         os.remove(log_file)
