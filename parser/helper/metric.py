@@ -184,6 +184,10 @@ class UF1(Metric):
         for l, tp in self.nt_tp.items():
             fn = self.nt_fn[l] if l in self.nt_fn else 0
             result[l] = tp / (tp + fn)
+        for l in self.nt_fn.keys():
+            if not l in result:
+                result[l] = 0
+        result = dict(sorted(result.items()))
         return result
 
     @property
