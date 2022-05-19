@@ -102,11 +102,8 @@ class Evaluate(CMD):
         label_recall = self.args.test.label_recall if hasattr(self.args.test, 'label_recall') else False
         if label_recall:
             nt_log = os.path.join(self.args.load_from_dir, 'label_recall.csv')
-            # nt_label = ['SBAR', 'NP', 'VP', 'PP', 'ADJP', 'ADVP']
             with open(nt_log, 'w', newline='') as f:
                 writer = csv.writer(f)
-                # writer.writerow(nt_label)
-                # writer.writerow([metric_f1.label_recall[l] for l in nt_label])
                 for label, recall in metric_f1.label_recall.items():
                     writer.writerow([label, recall])
 
