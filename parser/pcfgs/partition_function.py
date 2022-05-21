@@ -1,12 +1,7 @@
 import torch
 import torch.nn as nn
-from parser.pcfgs.fn import checkpoint
 
 class PartitionFunction(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-    
-    @torch.enable_grad()
     def depth_partition_function(self, rules, lens, mode=None, span=0, withRootTerm=False):
         rule = rules['rule']
         root = rules['root']
@@ -62,8 +57,6 @@ class PartitionFunction(nn.Module):
             r = r.logsumexp(1)
         return r
 
-
-    @torch.enable_grad()
     def length_partition_function(self, rules, lens, mode=None):
         root = rules['root']
         rule = rules['rule']
@@ -87,20 +80,20 @@ class PartitionFunction(nn.Module):
         # nonterminals: X Y Z
         # terminals: x y z
         # XYZ: X->YZ  XYz: X->Yz  ...
-        @checkpoint
+        # @checkpoint
         def Xyz(rule):
             # y_z = (term[:, :, None] + term[:, None, :]).reshape(batch, T * T)
             b_n_x = contract(rule)
             return b_n_x
 
-        @checkpoint
+        # @checkpoint
         def XYZ(Y, Z, rule):
             w = Y.shape[1] - 1
             b_n_yz = (Y[:, :-1, :, None] + Z[:, 1:, None, :]).reshape(batch, w, -1).logsumexp(1)
             b_n_x = contract(b_n_yz.unsqueeze(-2) + rule)
             return b_n_x
 
-        @checkpoint
+        # @checkpoint
         def XYz(Y, rule):
             Y = Y[:, -1, :, None]
             b_n_yz = Y.expand(batch, NT, T).reshape(batch, NT * T)
@@ -108,7 +101,7 @@ class PartitionFunction(nn.Module):
             return b_n_x
 
 
-        @checkpoint
+        # @checkpoint
         def XyZ(Z, rule):
             Z = Z[:, 0, None, :]
             b_n_yz = Z.expand(batch, T, NT).reshape(batch, NT * T)
@@ -142,6 +135,82 @@ class PartitionFunction(nn.Module):
             logZ = contract(s[torch.arange(batch), lens] + root)
         return logZ
 
+    def length_partition_function_full(self, rules, lens, mode=None):
+        root = rules['root']
+        rule = rules['rule']
+        term = rules['unary']
+
+        batch, NT, S, _ = rule.shape
+        T = S - NT
+        N = lens.max() + 1
+
+        s = rule.new_zeros(batch, N, NT).fill_(-1e9)
+        NTs = slice(0, NT)
+        Ts = slice(NT, S)
+
+        X_Y_Z = rule[:, :, NTs, NTs].reshape(batch, NT, NT * NT)
+        X_y_Z = rule[:, :, Ts, NTs].reshape(batch, NT, NT * T)
+        X_Y_z = rule[:, :, NTs, Ts].reshape(batch, NT, NT * T)
+        X_y_z = rule[:, :, Ts, Ts].reshape(batch, NT, T * T)
+
+        def contract(x, dim=-1):
+            return x.logsumexp(dim)
+
+        # nonterminals: X Y Z
+        # terminals: x y z
+        # XYZ: X->YZ  XYz: X->Yz  ...
+        # @checkpoint
+        def Xyz(rule, term):
+            y_z = (term[:, :, None] + term[:, None, :]).reshape(batch, 1, T * T)
+            b_n_x = contract(rule + y_z)
+            return b_n_x
+
+        # @checkpoint
+        def XYZ(rule, Y, Z):
+            w = Y.shape[1] - 1
+            b_n_yz = (Y[:, :-1, :, None] + Z[:, 1:, None, :]).reshape(batch, w, -1).logsumexp(1)
+            b_n_x = contract(b_n_yz.unsqueeze(-2) + rule)
+            return b_n_x
+
+        # @checkpoint
+        def XYz(rule, Y, term):
+            Yz = Y[:, -1, :, None] + term[:, None, :]
+            b_n_yz = Yz.expand(batch, NT, T).reshape(batch, 1, NT * T)
+            b_n_x = contract(b_n_yz + rule)
+            return b_n_x
+
+        # @checkpoint
+        def XyZ(rule, term, Z):
+            yZ = term[:, :, None] + Z[:, 0, None, :]
+            b_n_yz = yZ.expand(batch, T, NT).reshape(batch, 1, NT * T)
+            b_n_x = contract(b_n_yz + rule)
+            return b_n_x
+
+        y_z = term.logsumexp(-1)
+        for w in range(2, N):
+            if w == 2:
+                s[:, w].copy_(Xyz(X_y_z, y_z))
+                continue
+
+            x = rule.new_zeros(3, batch, NT).fill_(-1e9)
+
+            Y = s[:, 2:w].clone()
+            Z = s[:, 2:w].flip(1).clone()
+
+            if w > 3:
+                x[0].copy_(XYZ(X_Y_Z, Y, Z))
+
+            x[1].copy_(XYz(X_Y_z, Y, y_z))
+            x[2].copy_(XyZ(X_y_Z, y_z, Z))
+
+            s[:, w].copy_(contract(x, dim=0))
+
+        if mode == 'full':
+            logZ = contract(s + root.unsqueeze(1))
+        else:
+            logZ = contract(s[torch.arange(batch), lens] + root)
+        return logZ
+
     def forward(self, rules, lens, mode='length', depth_output=None, span=0):
         if type(lens) == int:
             lens = rules['root'].new_tensor([lens]).long()
@@ -149,3 +218,5 @@ class PartitionFunction(nn.Module):
             return self.depth_partition_function(rules, lens, depth_output, span)
         elif mode == 'length':
             return self.length_partition_function(rules, lens, depth_output)
+        elif mode == 'length_unary':
+            return self.length_partition_function_full(rules, lens, depth_output)

@@ -5,7 +5,7 @@ import torch.nn as nn
 from tqdm import tqdm
 from parser.helper.metric import LikelihoodMetric,  UF1, LossMetric, UAS
 
-from utils import depth_from_span, depth_to_onehot, depth_to_index
+from utils import depth_from_span
 
 class CMD(object):
     def __call__(self, args):
@@ -41,8 +41,8 @@ class CMD(object):
 
             if hasattr(self.model, 'pf'):
                 self.pf = self.pf + self.model.pf.detach().cpu().tolist() if self.model.pf.numel() != 1 else [self.model.pf.detach().cpu().tolist()]
-            if self.iter != 0 and self.iter % 500 == 0:
-                self.writer.add_scalar('train/loss', self.total_loss/100, self.iter)
+            if self.iter != 0 and self.iter % 1000 == 0:
+                self.writer.add_scalar('train/loss', self.total_loss/1000, self.iter)
                 self.total_loss = 0
                 if hasattr(self.model, 'pf'):
                     self.writer.add_histogram('train/partition_number', self.model.pf.detach().cpu(), self.iter)

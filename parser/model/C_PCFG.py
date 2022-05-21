@@ -1,17 +1,16 @@
 import torch
-import torch.distributions as dist
-from torch import dsmm
 import torch.nn as nn
 from parser.modules.res import ResLayer
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
+
+from parser.pcfgs.partition_function import PartitionFunction
 from ..pcfgs.pcfg import PCFG
-from torch.profiler import record_function
 
 class CompoundPCFG(nn.Module):
     def __init__(self, args, dataset):
         super(CompoundPCFG, self).__init__()
-
         self.pcfg = PCFG()
+        self.part = PartitionFunction()
         self.device = dataset.device
         self.args = args
         self.NT = args.NT
@@ -50,16 +49,16 @@ class CompoundPCFG(nn.Module):
         # Partition function
         self.mode = args.mode if hasattr(args, 'mode') else None
         # Fix embedding vectors of symbols
-        if hasattr(args, 'fix_root'):
-            self.root_emb.requires_grad = args.fix_root
-        if hasattr(args, 'fix_nonterm'):
-            self.nonterm_emb.requires_grad = args.fix_nonterm
-        if hasattr(args, 'fix_term'):
-            self.term_emb.requires_grad = args.fix_term
+        # if hasattr(args, 'fix_root'):
+        #     self.root_emb.requires_grad = args.fix_root
+        # if hasattr(args, 'fix_nonterm'):
+        #     self.nonterm_emb.requires_grad = args.fix_nonterm
+        # if hasattr(args, 'fix_term'):
+        #     self.term_emb.requires_grad = args.fix_term
 
-        if hasattr(args, 'fix_root_mlp') and args.fix_root_mlp:
-            for p in self.root_mlp.parameters():
-                p.requires_grad = False
+        # if hasattr(args, 'fix_root_mlp') and args.fix_root_mlp:
+        #     for p in self.root_mlp.parameters():
+        #         p.requires_grad = False
         self._initialize()
 
     def _initialize(self):
@@ -69,6 +68,38 @@ class CompoundPCFG(nn.Module):
 
     def update_switch(self, switch: bool):
         self.switch = switch
+
+    def get_grad(self):
+        grad = []
+        for p in self.parameters():
+            grad.append(p.grad.clone().reshape(-1))
+        return torch.cat(grad)
+
+    def set_grad(self, grad):
+        total_num = 0
+        for p in self.parameters():
+            shape = p.grad.shape
+            num = p.grad.numel()
+            p.grad = p.grad + grad[total_num:total_num+num].reshape(*shape)
+            total_num += num
+
+    def get_rules_grad(self):
+        b = self.rules['root'].shape[0]
+        return torch.cat([
+            self.rules['root'].grad.clone().reshape(b, -1),
+            self.rules['rule'].grad.clone().reshape(b, -1),
+            self.rules['unary'].grad.clone().reshape(b, -1)
+            # self.rules['unary_full'].grad.clone().reshape(b, -1)
+        ], dim=-1)
+
+    def backward_rules(self, grad):
+        rs = ['root', 'rule', 'unary']
+        total_num = 0
+        for r in rs:
+            shape = self.rules[r].shape
+            num = self.rules[r][0].numel()
+            self.rules[r].backward(grad[:, total_num:total_num+num].reshape(*shape), retain_graph=True)
+            total_num += num
 
     def forward(self, input, evaluating=False):
         x = input['word']
@@ -110,15 +141,23 @@ class CompoundPCFG(nn.Module):
             return roots
 
         def terms():
-            term_emb = self.term_emb.unsqueeze(0).unsqueeze(1).expand(
-                b, n, self.T, self.s_dim
+            #TODO: Check the replication between embs before mlp
+            # term_emb = self.term_emb.unsqueeze(0).unsqueeze(1).expand(
+            #     b, n, self.T, self.s_dim
+            # )
+            # z_expand = z.unsqueeze(1).expand(b, n, self.z_dim)
+            # z_expand = z_expand.unsqueeze(2).expand(b, n, self.T, self.z_dim)
+            # term_emb = torch.cat([term_emb, z_expand], -1)
+            # term_prob = self.term_mlp(term_emb).log_softmax(-1)
+            # indices = x.unsqueeze(2).expand(b, n, self.T).unsqueeze(3)
+            # term_prob = torch.gather(term_prob, 3, indices).squeeze(3)
+
+            term_emb = self.term_emb.unsqueeze(0).expand(
+                b, self.T, self.s_dim
             )
-            z_expand = z.unsqueeze(1).expand(b, n, self.z_dim)
-            z_expand = z_expand.unsqueeze(2).expand(b, n, self.T, self.z_dim)
+            z_expand = z.unsqueeze(1).expand(b, self.T, self.z_dim)
             term_emb = torch.cat([term_emb, z_expand], -1)
             term_prob = self.term_mlp(term_emb).log_softmax(-1)
-            indices = x.unsqueeze(2).expand(b, n, self.T).unsqueeze(3)
-            term_prob = torch.gather(term_prob, 3, indices).squeeze(3)
             return term_prob
 
         def rules():
@@ -133,55 +172,104 @@ class CompoundPCFG(nn.Module):
             rule_prob = rule_prob.reshape(b, self.NT, self.NT_T, self.NT_T)
             return rule_prob
 
-
         root, unary, rule = roots(), terms(), rules()
-        # # temp
-        # root.retain_grad()
-        # unary.retain_grad()
-        # rule.retain_grad()
+
+        # for gradient conflict by using gradients of rules
+        if self.training:
+            root.retain_grad()
+            unary.retain_grad()
+            rule.retain_grad()
 
         return {'unary': unary,
                 'root': root,
                 'rule': rule,
                 'kl': kl(mean, lvar).sum(1)}
 
-    def loss(self, input, partition=False, max_depth=0):
-        self.partition = partition
-        # with record_function("rule_setup"):
-        rules = self.forward(input)
-        self.rules = rules
+    def term_from_unary(self, input, term):
+        x = input['word']
+        n = x.shape[1]
+        b = term.shape[0]
+        term = term.unsqueeze(1).expand(b, n, self.T, self.V)
+        indices = x[..., None, None].expand(b, n, self.T, 1)
+        return torch.gather(term, 3, indices).squeeze(3)
+
+    def loss(self, input, partition=False, max_depth=0, soft=False):
+        self.rules = self.forward(input)
+        terms = self.term_from_unary(input, self.rules['unary'])
+
+        result = self.pcfg(self.rules, terms, lens=input['seq_len'], depth=False)
         # Partition function
         if partition:
             # depth-conditioned inside algorithm
-            max_d = input['seq_len'].max()
-            min_d = input['seq_len'].min().log2().ceil().long().item() + 1
-            result = self.pcfg.inside(rules=rules, lens=input['seq_len'], depth=False)
-
             # partition function approximation
-            if max_depth == 0:
-                lens = input['seq_len']
-            else:
-                lens = max_depth
-            # self.pf = self.pcfg._partition_function(rules=rules, lens=lens, mode=self.mode, depth_output='full')[:, min_d:max_d+1]
-            # self.pf_d = self.pcfg._partition_function(rules=rules, lens=lens, mode='depth', depth_output='full')[:, min_d:max_d+1]
-            self.pf = self.pcfg._partition_function(rules=rules, lens=lens, mode=self.mode)
-
+            # if max_depth == 0:
+            #     lens = input['seq_len']
+            # else:
+            #     lens = max_depth
+            self.pf = self.part(self.rules, lens=input['seq_len'], mode=self.mode)
             # Renormalization
+            if soft:
+                return (-result['partition'] + self.rules['kl']).mean(), self.pf.mean()
             result['partition'] = result['partition'] - self.pf
-        else:
-            result = self.pcfg.inside(rules=rules, lens=input['seq_len'], depth=False)
-
         # depth-conditioned inside algorithm
-        loss =  (-result['partition'] + rules['kl']).mean()
+        loss =  (-result['partition'] + self.rules['kl']).mean()
         return loss
 
+    def rule_backward(self, loss, z_l, optimizer):
+        def batch_dot(x, y):
+            return (x*y).sum(-1, keepdims=True)
+        def projection(x, y):
+            return (batch_dot(x, y)/batch_dot(y, y))*y
+        # Get dL_w
+        loss.backward(retain_graph=True)
+        g_loss = self.get_rules_grad() # main vector
+        optimizer.zero_grad()
+        # Get dZ_l
+        z_l.backward(retain_graph=True)
+        g_z_l = self.get_rules_grad()
+        optimizer.zero_grad()
+        # oproj_{dL_w}{dZ_l} = dZ_l - proj_{dL_w}{dZ_l}
+        g_oproj = g_z_l - projection(g_z_l, g_loss)
+        # dL_BCLs = dL_w + oproj_{dL_w}{dZ_l}
+        g_r = g_loss + g_oproj
+        # Re-calculate soft BCL
+        self.backward_rules(g_r)
+
+    def param_backward(self, loss, z_l, optimizer):
+        def batch_dot(x, y):
+            return (x*y).sum(-1, keepdims=True)
+        def projection(x, y):
+            return (batch_dot(x, y)/(batch_dot(y, y)))*y
+        # Get dL_w
+        loss.backward(retain_graph=True)
+        g_loss = self.get_grad() # main vector
+        optimizer.zero_grad()
+        # Get dZ_l
+        z_l.backward(retain_graph=True)
+        g_z_l = self.get_grad()
+        optimizer.zero_grad()
+
+        # oproj_{dL_w}{dZ_l} = dZ_l - proj_{dL_w}{dZ_l}
+        g_oproj = g_z_l - projection(g_z_l, g_loss)
+        # dL_BCLs = dL_w + oproj_{dL_w}{dZ_l}
+        g_r = g_loss + g_oproj
+        # Re-calculate soft BCL
+        self.set_grad(g_r)
+
+    def soft_backward(self, loss, z_l, optimizer, mode='rule'):
+        if mode == 'rule':
+            self.rule_backward(loss, z_l, optimizer)
+        elif mode == 'parameter':
+            self.param_backward(loss, z_l, optimizer)
 
     def evaluate(self, input, decode_type, depth=0, depth_mode=False, **kwargs):
         rules = self.forward(input, evaluating=True)
+        terms = self.term_from_unary(input, rules['unary'])
+
         if decode_type == 'viterbi':
-            result = self.pcfg.decode(rules=rules, lens=input['seq_len'], viterbi=True, mbr=False, depth=depth_mode)
+            result = self.pcfg.decode(rules, terms, lens=input['seq_len'], viterbi=True, mbr=False, depth=depth_mode)
         elif decode_type == 'mbr':
-            result = self.pcfg.decode(rules=rules, lens=input['seq_len'], viterbi=False, mbr=True, depth=depth_mode)
+            result = self.pcfg.decode(rules, terms, lens=input['seq_len'], viterbi=False, mbr=True, depth=depth_mode)
         else:
             raise NotImplementedError
 

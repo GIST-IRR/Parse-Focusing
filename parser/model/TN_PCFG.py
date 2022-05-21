@@ -70,20 +70,11 @@ class TNPCFG(nn.Module):
         ], dim=-1)
 
     def backward_rules(self, grad):
-        # head_shape = self.rules['head'].shape
-        # left_shape = self.rules['left'].shape
-        # right_shape = self.rules['right'].shape
-        # unary_shae = self.rules['unary'].shape
-        # self.rules['root'].backward(grad[:, :self.NT], retain_graph=True)
-        # self.rules['head'].backward(grad[:, self.NT:self.NT*(self.r+1)], retain_graph=True)
-        # self.rules['left'].backward(grad[:, self.NT*(self.r+1):(self.NT+self.T)*self.r], retain_graph=True)
-        # self.rules['right'].backward(grad[:, ], retain_graph=True)
-        # self.rules['unary'].backward(grad[:, self.NT*(1+self.NT_T**2):].reshape(*unary_shae), retain_graph=True)
         total_num = 0
         for r in ['root', 'head', 'left', 'right', 'unary']:
             shape = self.rules[r].shape
             size = self.rules[r][0].numel()
-            self.rules[r].backward(grad[:, total_num:total_num+size], retain_graph=True).reshape(*shape)
+            self.rules[r].backward(grad[:, total_num:total_num+size].reshape(*shape), retain_graph=True)
             total_num += size
 
     def forward(self, input, **kwargs):
@@ -96,11 +87,12 @@ class TNPCFG(nn.Module):
 
         def terms():
             term_prob = self.term_mlp(self.term_emb).log_softmax(-1)
-            term_prob = term_prob.unsqueeze(0).unsqueeze(1).expand(
-                b, n, self.T, self.V
-            )
-            indices = x.unsqueeze(2).expand(b, n, self.T).unsqueeze(3)
-            term_prob = torch.gather(term_prob, 3, indices).squeeze(3)
+            # term_prob = term_prob.unsqueeze(0).unsqueeze(1).expand(
+            #     b, n, self.T, self.V
+            # )
+            term_prob = term_prob.unsqueeze(0).expand(b, self.T, self.V)
+            # indices = x.unsqueeze(2).expand(b, n, self.T).unsqueeze(3)
+            # term_prob = torch.gather(term_prob, 3, indices).squeeze(3)
             return term_prob
 
         def rules():
@@ -131,9 +123,19 @@ class TNPCFG(nn.Module):
                 'right': right,
                 'kl': 0}
 
+    def term_from_unary(self, input, term):
+        x = input['word']
+        n = x.shape[1]
+        b = term.shape[0]
+        term = term.unsqueeze(1).expand(b, n, self.T, self.V)
+        indices = x[..., None, None].expand(b, n, self.T, 1)
+        return torch.gather(term, 3, indices).squeeze(3)
+
     def loss(self, input, partition=False, soft=False):
         self.rules = self.forward(input)
-        result = self.pcfg(self.rules, lens=input['seq_len'])
+        terms = self.term_from_unary(input, self.rules['unary'])
+
+        result = self.pcfg(self.rules, terms, lens=input['seq_len'])
         # Partition function
         if partition:
             self.pf = self.part(self.rules, input['seq_len'], mode=self.mode)
@@ -166,8 +168,7 @@ class TNPCFG(nn.Module):
         def batch_dot(x, y):
             return (x*y).sum(-1, keepdims=True)
         def projection(x, y):
-            eps = 1e-9
-            return (batch_dot(x, y)/(batch_dot(y, y)+eps))*y
+            return (batch_dot(x, y)/(batch_dot(y, y)))*y
         # Get dL_w
         loss.backward(retain_graph=True)
         g_loss = self.get_grad() # main vector
@@ -195,15 +196,17 @@ class TNPCFG(nn.Module):
 
     def evaluate(self, input, decode_type, depth=0, **kwargs):
         rules = self.forward(input)
+        terms = self.term_from_unary(input, rules['unary'])
+
         if decode_type == 'viterbi':
             assert NotImplementedError
         elif decode_type == 'mbr':
-            result = self.pcfg.decode(rules=rules, lens=input['seq_len'], viterbi=False, mbr=True)
+            result = self.pcfg(rules, terms, lens=input['seq_len'], viterbi=False, mbr=True)
         else:
             raise NotImplementedError
 
         if depth > 0:
-            result['depth'] = self.pcfg._partition_function(rules, depth, mode='length', depth_output='full')
+            result['depth'] = self.part(rules, depth, mode='length', depth_output='full')
             result['depth'] = result['depth'].exp()
 
         return result

@@ -6,8 +6,8 @@ import torch
 
 class PCFG(PCFG_base):
     @torch.enable_grad()
-    def _inside(self, rules, lens, viterbi=False, mbr=False):
-        terms = rules['unary']
+    def _inside(self, rules, terms, lens, viterbi=False, mbr=False):
+        # terms = rules['unary']
         rule = rules['rule']
         root = rules['root']
 

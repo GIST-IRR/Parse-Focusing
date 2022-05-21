@@ -51,10 +51,6 @@ class NeuralPCFG(nn.Module):
         self.depth = depth
 
     def get_grad(self):
-        # grad = []
-        # for p in self.parameters():
-        #     grad.append(p.grad.clone())
-        # return grad
         grad = []
         for p in self.parameters():
             grad.append(p.grad.clone().reshape(-1))
@@ -63,8 +59,8 @@ class NeuralPCFG(nn.Module):
     def set_grad(self, grad):
         total_num = 0
         for p in self.parameters():
-            num = p.grad.numel()
             shape = p.grad.shape
+            num = p.grad.numel()
             p.grad = p.grad + grad[total_num:total_num+num].reshape(*shape)
             total_num += num
 
@@ -74,16 +70,19 @@ class NeuralPCFG(nn.Module):
             self.rules['root'].grad.clone().reshape(b, -1),
             self.rules['rule'].grad.clone().reshape(b, -1),
             self.rules['unary'].grad.clone().reshape(b, -1)
+            # self.rules['unary_full'].grad.clone().reshape(b, -1)
         ], dim=-1)
 
     def backward_rules(self, grad):
-        rule_shape = self.rules['rule'].shape
-        unary_shae = self.rules['unary'].shape
-        self.rules['root'].backward(grad[:, :self.NT], retain_graph=True)
-        self.rules['rule'].backward(grad[:, self.NT:self.NT*(1+self.NT_T**2)].reshape(*rule_shape), retain_graph=True)
-        self.rules['unary'].backward(grad[:, self.NT*(1+self.NT_T**2):].reshape(*unary_shae), retain_graph=True)
+        rs = ['root', 'rule', 'unary']
+        total_num = 0
+        for r in rs:
+            shape = self.rules[r].shape
+            num = self.rules[r][0].numel()
+            self.rules[r].backward(grad[:, total_num:total_num+num].reshape(*shape), retain_graph=True)
+            total_num += num
 
-    def forward(self, input, evaluating=False):
+    def forward(self, input):
         x = input['word']
         b, n = x.shape[:2]
 
@@ -93,12 +92,8 @@ class NeuralPCFG(nn.Module):
             return roots.expand(b, self.NT)
 
         def terms():
-            term_emb = self.term_emb.unsqueeze(0).unsqueeze(1).expand(
-                b, n, self.T, self.s_dim
-            )
-            term_prob = self.term_mlp(term_emb).log_softmax(-1)
-            indices = x.unsqueeze(2).expand(b, n, self.T).unsqueeze(3)
-            term_prob = torch.gather(term_prob, 3, indices).squeeze(3)
+            term_prob = self.term_mlp(self.term_emb).log_softmax(-1)
+            term_prob = term_prob.unsqueeze(0).expand(b, self.T, self.V)
             return term_prob
 
         def rules():
@@ -111,18 +106,28 @@ class NeuralPCFG(nn.Module):
         # for gradient conflict by using gradients of rules
         if self.training:
             root.retain_grad()
-            unary.retain_grad()
             rule.retain_grad()
+            unary.retain_grad()
+            # unary_full.retain_grad()
 
         return {'unary': unary,
                 'root': root,
                 'rule': rule,
                 'kl': torch.tensor(0, device=self.device)}
 
+    def term_from_unary(self, input, term):
+        x = input['word']
+        n = x.shape[1]
+        b = term.shape[0]
+        term = term.unsqueeze(1).expand(b, n, self.T, self.V)
+        indices = x[..., None, None].expand(b, n, self.T, 1)
+        return torch.gather(term, 3, indices).squeeze(3)
 
     def loss(self, input, partition=False, soft=False):
         self.rules = self.forward(input)
-        result = self.pcfg(self.rules, lens=input['seq_len'])
+        terms = self.term_from_unary(input, self.rules['unary'])
+
+        result = self.pcfg(self.rules, terms, lens=input['seq_len'])
         if partition:
             self.pf = self.part(self.rules, lens=input['seq_len'], mode=self.mode)
             if soft:
@@ -154,8 +159,7 @@ class NeuralPCFG(nn.Module):
         def batch_dot(x, y):
             return (x*y).sum(-1, keepdims=True)
         def projection(x, y):
-            eps = 1e-9
-            return (batch_dot(x, y)/(batch_dot(y, y)+eps))*y
+            return (batch_dot(x, y)/(batch_dot(y, y)))*y
         # Get dL_w
         loss.backward(retain_graph=True)
         g_loss = self.get_grad() # main vector
@@ -166,10 +170,8 @@ class NeuralPCFG(nn.Module):
         optimizer.zero_grad()
 
         # oproj_{dL_w}{dZ_l} = dZ_l - proj_{dL_w}{dZ_l}
-        # dL_BCLs = dL_w + oproj_{dL_w}{dZ_l}
-        # g_r = [g_l + g_z - projection(g_z, g_l) \
-        #     for g_l, g_z in zip(g_loss, g_z_l)]
         g_oproj = g_z_l - projection(g_z_l, g_loss)
+        # dL_BCLs = dL_w + oproj_{dL_w}{dZ_l}
         g_r = g_loss + g_oproj
         # Re-calculate soft BCL
         self.set_grad(g_r)
@@ -182,16 +184,18 @@ class NeuralPCFG(nn.Module):
 
 
     def evaluate(self, input, decode_type, depth=0, depth_mode=False, **kwargs):
-        rules = self.forward(input, evaluating=True)
+        rules = self.forward(input)
+        terms = self.term_from_unary(input, rules['unary'])
+
         if decode_type == 'viterbi':
-            result = self.pcfg.decode(rules=rules, lens=input['seq_len'], viterbi=True, mbr=False)
+            result = self.pcfg(rules, terms, lens=input['seq_len'], viterbi=True, mbr=False)
         elif decode_type == 'mbr':
-            result = self.pcfg.decode(rules=rules, lens=input['seq_len'], viterbi=False, mbr=True)
+            result = self.pcfg(rules, terms, lens=input['seq_len'], viterbi=False, mbr=True)
         else:
             raise NotImplementedError
 
         if depth > 0:
-            result['depth'] = self.pcfg._partition_function(rules, depth, mode='length', depth_output='full')
+            result['depth'] = self.part(rules, depth, mode='length', depth_output='full')
             result['depth'] = result['depth'].exp()
 
         return result

@@ -4,16 +4,17 @@ from parser.pcfgs.fn import  stripe, diagonal_copy_, checkpoint
 import torch
 
 class TDPCFG(PCFG_base):
-    def __init__(self):
-        super(TDPCFG, self).__init__()
+    # def __init__(self):
+    #     super(TDPCFG, self).__init__()
 
-    def loss(self, rules, lens):
-        return self._inside(rules, lens)
+    # def loss(self, rules, lens):
+    #     return self._inside(rules, lens)
 
     @torch.enable_grad()
-    def _inside(self, rules, lens, mbr=False, viterbi=False):
+    def _inside(self, rules, terms, lens, mbr=False, viterbi=False):
         assert viterbi is not True
-        unary = rules['unary']
+        # unary = rules['unary']
+        unary = terms
         root = rules['root']
 
         # 3d binary rule probabilities tensor decomposes to three 2d matrices after CP decomposition.
@@ -35,6 +36,7 @@ class TDPCFG(PCFG_base):
         def transform_left_t(x, left):
             '''
             :param x: shape (batch, n, T)
+            :param left: shape (batch, NT+T, r)
             :return: shape (batch, n, r)
             '''
             return (x.unsqueeze(-1) + left.unsqueeze(1)).logsumexp(2)
