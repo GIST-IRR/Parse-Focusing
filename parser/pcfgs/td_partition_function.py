@@ -42,7 +42,7 @@ class TDPartitionFunction(PartitionFunction):
         L = rules['left']  # (batch, NT+T, r)
         R = rules['right'] # (batch, NT+T, r)
 
-        T = unary.shape[-1]
+        T = unary.shape[1]
         S = L.shape[-2]
         NT = S - T
 
