@@ -23,10 +23,16 @@ class CMD(object):
 
             self.optimizer.zero_grad()
             
-            if self.partition and hasattr(train_arg, 'soft_loss'):
+            if self.partition \
+                and hasattr(train_arg, 'soft_loss_target') \
+                and hasattr(train_arg, 'soft_loss_mode'):
                 # Split loss
                 loss, z_l = self.model.loss(x, partition=self.partition, soft=True)
-                self.model.soft_backward(loss, z_l, self.optimizer, mode=train_arg.soft_loss)
+                self.model.soft_backward(
+                    loss, z_l, self.optimizer,
+                    target=train_arg.soft_loss_target,
+                    mode=train_arg.soft_loss_mode
+                )
             else:
                 # Original
                 loss = self.model.loss(x, partition=self.partition)
