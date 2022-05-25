@@ -21,7 +21,6 @@ def train(args2):
     args.update(args2.__dict__)
 
     print(f"Set the device with ID {args.device} visible")
-    # os.environ['CUDA_VISIBLE_DEVICES'] = args.device
     args.device = f'cuda:{args.device}' if torch.cuda.is_available() else 'cpu'
     torch.cuda.set_device(args.device)
 
@@ -42,7 +41,6 @@ def train(args2):
         # CUDA
         torch.cuda.manual_seed(args.seed)
         torch.cuda.manual_seed_all(args.seed)
-        # torch.use_deterministic_algorithms(True)
         if torch.version.cuda >= str(10.2):
             os.environ['CUBLAS_WORKSPACE_CONFIG']=':16:8'
             # or

@@ -26,7 +26,7 @@ class CMD(object):
             if self.partition \
                 and hasattr(train_arg, 'soft_loss_target') \
                 and hasattr(train_arg, 'soft_loss_mode'):
-                # Split loss
+                # Soft gradients
                 loss, z_l = self.model.loss(x, partition=self.partition, soft=True)
                 self.model.soft_backward(
                     loss, z_l, self.optimizer,
@@ -34,7 +34,7 @@ class CMD(object):
                     mode=train_arg.soft_loss_mode
                 )
             else:
-                # Original
+                # Hard gradients
                 loss = self.model.loss(x, partition=self.partition)
                 loss.backward()
             
@@ -53,13 +53,8 @@ class CMD(object):
                 if hasattr(self.model, 'pf'):
                     self.writer.add_histogram('train/partition_number', self.model.pf.detach().cpu(), self.iter)
                     self.pf = []
-                # if hasattr(self.model.rules, 'root'):
-                #     self.writer.add_histogram('train/root_prob', self.model.rules['root'].reshape(x['word'].shape[0], -1).detach().cpu(), self.iter)
-                # if hasattr(self.model.rules, 'rule'):
-                #     self.writer.add_histogram('train/rule_prob', self.model.rules['rule'].reshape(x['word'].shape[0], -1).detach().cpu(), self.iter)
             # Check total iteration
             self.iter += 1
-
         return
 
 
@@ -71,7 +66,6 @@ class CMD(object):
         model.eval()
 
         metric_f1 = UF1()
-        metric_f1_o = UF1()
         metric_f1_left = UF1()
         metric_f1_right = UF1()
         metric_uas = UAS()
@@ -109,7 +103,6 @@ class CMD(object):
 
             if eval_depth:
                 metric_f1(result['prediction'], y['gold_tree'], y['depth'], lens=True, nonterminal=True)
-                # metric_f1_o(result['prediction_o'], y['gold_tree'], y['depth'], lens=True, nonterminal=True)
             else:
                 metric_f1(result['prediction'], y['gold_tree'], lens=True, nonterminal=True)
             if left_binarization:
