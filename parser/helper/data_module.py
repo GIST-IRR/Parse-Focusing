@@ -1,4 +1,6 @@
 import pickle
+
+from torch import ge
 from fastNLP.core.dataset import DataSet
 from fastNLP.core.batch import DataSetIter
 from fastNLP.core.vocabulary import Vocabulary
@@ -9,11 +11,13 @@ from collections import defaultdict
 import os
 import random
 class DataModule():
-    def __init__(self, hparams):
+    def __init__(self, hparams, generator=None, worker_init_fn=None):
         super().__init__()
 
         self.hparams = hparams
         self.device = self.hparams.device
+        self.generator = generator
+        self.worker_init_fn = worker_init_fn
         self.setup()
 
     def prepare_data(self):
@@ -160,7 +164,7 @@ class DataModule():
         train_dataset = self.train_dataset.drop(lambda x:x['seq_len']<min_len, inplace=False)
         train_dataset = self.train_dataset.drop(lambda x:x['seq_len']>max_len, inplace=False)
         train_sampler = ByLengthSampler(dataset= train_dataset, batch_size=args.batch_size)
-        return DataSetIter(dataset=train_dataset, batch_sampler= train_sampler)
+        return DataSetIter(dataset=train_dataset, batch_sampler=train_sampler, generator=self.generator, worker_init_fn=self.worker_init_fn)
 
     @property
     def val_dataloader(self):
@@ -169,11 +173,11 @@ class DataModule():
             test_sampler = ConstantTokenNumSampler(seq_len=self.val_dataset.get_field("seq_len").content,
                                                 max_token=args.max_tokens, num_bucket=args.bucket)
             return DataSetIter(self.val_dataset, batch_size=1, sampler=None, as_numpy=False, num_workers=4,
-                           pin_memory=True, drop_last=False, timeout=0, worker_init_fn=None,
-                           batch_sampler=test_sampler)
+                           pin_memory=True, drop_last=False, timeout=0, worker_init_fn=self.worker_init_fn,
+                           batch_sampler=test_sampler, generator=self.generator)
         elif args.sampler == 'batch':
             train_sampler = ByLengthSampler(dataset= self.val_dataset, batch_size=args.batch_size)
-            return DataSetIter(dataset=self.val_dataset, batch_sampler= train_sampler)
+            return DataSetIter(dataset=self.val_dataset, batch_sampler=train_sampler, generator=self.generator, worker_init_fn=self.worker_init_fn)
         else:
             raise NotImplementedError
 
@@ -186,11 +190,11 @@ class DataModule():
             test_sampler = ConstantTokenNumSampler(seq_len=test_dataset.get_field("seq_len").content,
                                                 max_token=args.max_tokens, num_bucket=args.bucket)
             return DataSetIter(self.test_dataset, batch_size=1, sampler=None, as_numpy=False, num_workers=4,
-                           pin_memory=True, drop_last=False, timeout=0, worker_init_fn=None,
-                           batch_sampler=test_sampler)
+                           pin_memory=True, drop_last=False, timeout=0, worker_init_fn=self.worker_init_fn,
+                           batch_sampler=test_sampler, generator=self.generator)
         elif args.sampler == 'batch':
             train_sampler = ByLengthSampler(dataset= test_dataset, batch_size=args.batch_size)
-            return DataSetIter(dataset=test_dataset, batch_sampler= train_sampler)
+            return DataSetIter(dataset=test_dataset, batch_sampler= train_sampler, generator=self.generator, worker_init_fn=self.worker_init_fn)
         else:
             raise NotImplementedError
 

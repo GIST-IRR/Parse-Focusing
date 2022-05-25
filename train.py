@@ -31,13 +31,24 @@ def train(args2):
 
     # Set the random seed for reproducible experiments
     if hasattr(args, 'seed'):
+        # Python
         random.seed(args.seed)
+        # Numpy
         np.random.seed(args.seed)
+        # Pytorch
         torch.manual_seed(args.seed)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+        # CUDA
         torch.cuda.manual_seed(args.seed)
         torch.cuda.manual_seed_all(args.seed)
+        # torch.use_deterministic_algorithms(True)
+        if torch.version.cuda >= str(10.2):
+            os.environ['CUBLAS_WORKSPACE_CONFIG']=':16:8'
+            # or
+            # os.environ['CUBLAS_WORKSPACE_CONFIG']=':4096:2'
+        else:
+            os.environ['CUDA_LAUNCH_BLOCKING']='1'
 
     # Auto-generation of log dir
     log_dir = args2.conf.split('/')[-1].split('.')[0]

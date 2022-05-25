@@ -128,7 +128,7 @@ class BatchIter:
     def __init__(self, dataset, batch_size=1, sampler=None,
                  num_workers=0, pin_memory=False, drop_last=False,
                  timeout=0, worker_init_fn=None, collate_fn=None,
-                 batch_sampler=None):
+                 batch_sampler=None, generator=None):
         if isinstance(sampler, Sampler):  # 如果时fastNLP的sampler需要adapt一下
             sampler = SamplerAdapter(sampler=sampler or SequentialSampler(), dataset=dataset)
         self.sampler = sampler
@@ -142,7 +142,7 @@ class BatchIter:
                 num_workers=num_workers,
                 pin_memory=pin_memory, drop_last=drop_last,
                 timeout=timeout, worker_init_fn=worker_init_fn,
-                batch_sampler=batch_sampler)
+                batch_sampler=batch_sampler, generater=generator)
         else:
             self.dataiter = torch.utils.data.DataLoader(
                 dataset=dataset, batch_size=batch_size, sampler=self.sampler,
@@ -228,7 +228,7 @@ class DataSetIter(BatchIter):
 
     """
     def __init__(self, dataset, batch_size=1, sampler=None, as_numpy=False, num_workers=0, pin_memory=False,
-                 drop_last=False, timeout=0, worker_init_fn=None, batch_sampler=None):
+                 drop_last=False, timeout=0, worker_init_fn=None, batch_sampler=None, generator=None):
         r"""
         
         :param dataset: :class:`~fastNLP.DataSet` 对象, 数据集
@@ -258,7 +258,7 @@ class DataSetIter(BatchIter):
             dataset=dataset, batch_size=batch_size, sampler=sampler,
             num_workers=num_workers, pin_memory=pin_memory,
             drop_last=drop_last, timeout=timeout, worker_init_fn=worker_init_fn,
-            collate_fn=collate_fn, batch_sampler=batch_sampler
+            collate_fn=collate_fn, batch_sampler=batch_sampler, generator=generator
         )
 
     def __iter__(self):

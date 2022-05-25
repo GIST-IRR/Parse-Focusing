@@ -13,6 +13,7 @@ from pathlib import Path
 from torch.utils.tensorboard import SummaryWriter
 
 import math
+import random
 
 class Train(CMD):
 
@@ -21,7 +22,14 @@ class Train(CMD):
         self.args = args
         self.device = args.device
 
-        dataset = DataModule(args)
+        def seed_worker(worker_id):
+            worker_seed = args.seed % 2**32
+            np.random.seed(worker_seed)
+            random.seed(worker_seed)
+
+        generator = torch.Generator()
+        generator.manual_seed(args.seed)
+        dataset = DataModule(args, generator=generator, worker_init_fn=seed_worker)
         self.idx2word = np.array(list(dataset.word_vocab.idx2word.values())) # for word_vocab
         self.model = get_model(args.model, dataset)
         
