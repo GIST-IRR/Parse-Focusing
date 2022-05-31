@@ -28,7 +28,7 @@ class CMD(object):
                 and hasattr(train_arg, 'soft_loss_mode'):
                 # Soft gradients
                 loss, z_l = self.model.loss(x, partition=self.partition, soft=True)
-                self.model.soft_backward(
+                records = self.model.soft_backward(
                     loss, z_l, self.optimizer,
                     target=train_arg.soft_loss_target,
                     mode=train_arg.soft_loss_mode
@@ -37,6 +37,7 @@ class CMD(object):
                 # Hard gradients
                 loss = self.model.loss(x, partition=self.partition)
                 loss.backward()
+                records = None
             
             if train_arg.clip > 0:
                 nn.utils.clip_grad_norm_(self.model.parameters(),
@@ -53,6 +54,17 @@ class CMD(object):
                 if hasattr(self.model, 'pf'):
                     self.writer.add_histogram('train/partition_number', self.model.pf.detach().cpu(), self.iter)
                     self.pf = []
+                self.writer.add_histogram('train/root_gradients', self.model.rules['root'].grad.detach().cpu(), self.iter)
+                self.writer.add_histogram('train/rule_gradients', self.model.rules['rule'].grad.detach().cpu(), self.iter)
+                self.writer.add_histogram('train/unary_gradients', self.model.rules['unary'].grad.detach().cpu(), self.iter)
+                self.writer.add_histogram('train/root_prob', self.model.rules['root'].detach().cpu(), self.iter)
+                self.writer.add_histogram('train/rule_prob', self.model.rules['rule'].detach().cpu(), self.iter)
+                self.writer.add_histogram('train/unary_prob', self.model.rules['unary'].detach().cpu(), self.iter)
+                if records is not None:
+                    self.writer.add_histogram('train/loss_gradients', records['g_loss'].detach().cpu(), self.iter)
+                    self.writer.add_histogram('train/z_gradients', records['g_z_l'].detach().cpu(), self.iter)
+                    self.writer.add_histogram('train/projection_scale', records['proj_scale'].detach().cpu(), self.iter)
+                    
             # Check total iteration
             self.iter += 1
         return

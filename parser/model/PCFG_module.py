@@ -8,6 +8,12 @@ class PCFG_module(nn.Module):
     def update_depth(self, depth):
         self.depth = depth
 
+    def clear_rules_grad(self):
+        for k, v in self.rules.items():
+            if k == 'kl':
+                continue
+            v.grad = None
+
     def get_grad(self):
         grad = []
         for p in self.parameters():
@@ -55,27 +61,32 @@ class PCFG_module(nn.Module):
         return torch.gather(term, 3, indices).squeeze(3)
 
     def soft_backward(self, loss, z_l, optimizer, target='rule', mode='projection'):
+        dambda = 1.0
         def batch_dot(x, y):
             return (x*y).sum(-1, keepdims=True)
         def projection(x, y):
-            return (batch_dot(x, y)/batch_dot(y, y))*y
+            scale = (batch_dot(x, y)/batch_dot(y, y))
+            return scale * y, scale
         # Get dL_w
         loss.backward(retain_graph=True)
         if target == 'rule':
             g_loss = self.get_rules_grad() # main vector
+            self.clear_rules_grad()
         elif target == 'parameter':
             g_loss = self.get_grad()
-        optimizer.zero_grad()
+            optimizer.zero_grad()
         # Get dZ_l
         z_l.backward(retain_graph=True)
         if target == 'rule':
             g_z_l = self.get_rules_grad()
+            self.clear_rules_grad()
         elif target == 'parameter':
             g_z_l = self.get_grad()
-        optimizer.zero_grad()
+            optimizer.zero_grad()
 
         if mode == 'projection':
-            g_r = g_loss + projection(g_z_l, g_loss)
+            g_proj, proj_scale = projection(g_z_l, g_loss)
+            g_r = g_loss + dambda * g_proj
         elif mode == 'orthogonal':
         # oproj_{dL_w}{dZ_l} = dZ_l - proj_{dL_w}{dZ_l}
             g_oproj = g_z_l - projection(g_z_l, g_loss)
@@ -86,3 +97,10 @@ class PCFG_module(nn.Module):
             self.backward_rules(g_r)
         elif target == 'parameter':
             self.set_grad(g_r)
+
+        return {
+            'g_loss': g_loss,
+            'g_z_l': g_z_l,
+            'g_r': g_r,
+            'proj_scale': proj_scale
+        }
