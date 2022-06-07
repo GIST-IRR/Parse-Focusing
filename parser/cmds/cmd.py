@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import math
 import os
 import torch
 import torch.nn as nn
@@ -28,8 +29,13 @@ class CMD(object):
                 and hasattr(train_arg, 'soft_loss_mode'):
                 # Soft gradients
                 loss, z_l = self.model.loss(x, partition=self.partition, soft=True)
+                if hasattr(train_arg, 'dambda_warmup'):
+                    self.dambda = self.model.entropy_rules(probs=True).mean()
+                else:
+                    self.dambda = 1
                 records = self.model.soft_backward(
                     loss, z_l, self.optimizer,
+                    dambda=self.dambda,
                     target=train_arg.soft_loss_target,
                     mode=train_arg.soft_loss_mode
                 )
@@ -45,25 +51,30 @@ class CMD(object):
             self.optimizer.step()
             # writer
             self.total_loss += loss.item()
+            self.total_len += x['seq_len'].max().double()
 
             if hasattr(self.model, 'pf'):
                 self.pf = self.pf + self.model.pf.detach().cpu().tolist() if self.model.pf.numel() != 1 else [self.model.pf.detach().cpu().tolist()]
-            if self.iter != 0 and self.iter % 1000 == 0:
-                self.writer.add_scalar('train/loss', self.total_loss/1000, self.iter)
+            if self.iter != 0 and self.iter % 500 == 0:
+                self.writer.add_scalar('train/loss', self.total_loss/500, self.iter)
+                # self.writer.add_scalar('train/lambda', torch.cat(list(self.dambda.values())).mean(), self.iter)
+                self.writer.add_scalar('train/lambda', self.dambda, self.iter)
+                self.writer.add_scalar('train/length', self.total_len/500, self.iter)
                 self.total_loss = 0
+                self.total_len = 0
                 if hasattr(self.model, 'pf'):
                     self.writer.add_histogram('train/partition_number', self.model.pf.detach().cpu(), self.iter)
                     self.pf = []
-                self.writer.add_histogram('train/root_gradients', self.model.rules['root'].grad.detach().cpu(), self.iter)
-                self.writer.add_histogram('train/rule_gradients', self.model.rules['rule'].grad.detach().cpu(), self.iter)
-                self.writer.add_histogram('train/unary_gradients', self.model.rules['unary'].grad.detach().cpu(), self.iter)
-                self.writer.add_histogram('train/root_prob', self.model.rules['root'].detach().cpu(), self.iter)
-                self.writer.add_histogram('train/rule_prob', self.model.rules['rule'].detach().cpu(), self.iter)
-                self.writer.add_histogram('train/unary_prob', self.model.rules['unary'].detach().cpu(), self.iter)
+                for k, v in self.model.rules.items():
+                    if k == 'kl':
+                        continue
+                    self.writer.add_histogram(f'train/{k}_prob', v.detach().cpu(), self.iter)
+                    self.writer.add_histogram(f'train/{k}_grad', v.grad.detach().cpu(), self.iter)
                 if records is not None:
-                    self.writer.add_histogram('train/loss_gradients', records['g_loss'].detach().cpu(), self.iter)
-                    self.writer.add_histogram('train/z_gradients', records['g_z_l'].detach().cpu(), self.iter)
-                    self.writer.add_histogram('train/projection_scale', records['proj_scale'].detach().cpu(), self.iter)
+                    for k, v in records.items():
+                        self.writer.add_histogram(f'train/{k}', v.detach().cpu(), self.iter)
+                ent = self.model.entropy_rules()
+                self.writer.add_histogram(f'train/entropy', ent.detach().cpu(), self.iter)
                     
             # Check total iteration
             self.iter += 1

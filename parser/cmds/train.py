@@ -69,6 +69,8 @@ class Train(CMD):
         self.pf = []
         self.partition = False
         self.total_loss = 0
+        self.total_len = 0
+        self.dambda = 0
 
         for epoch in range(start_epoch, train_arg.max_epoch + 1):
             '''
@@ -90,6 +92,7 @@ class Train(CMD):
             else:
                 self.max_len = train_arg.max_len
                 self.min_len = train_arg.min_len
+
             train_loader = dataset.train_dataloader(max_len=self.max_len, min_len=self.min_len)
 
             # print_depth = self.model.depth if hasattr(self.model, 'depth') or self.model.depth == 0 else 'Not estimate.'
