@@ -16,6 +16,10 @@ class CMD(object):
         self.model.train()
         t = tqdm(loader, total=int(len(loader)),  position=0, leave=True)
         train_arg = self.args.train
+        heatmap_save_flag = True
+        heatmap_dir = os.path.join(self.args.save_dir, 'heatmap')
+        if not os.path.exists(heatmap_dir):
+            os.makedirs(heatmap_dir, exist_ok=True)
 
         for x, _ in t:
             if not hasattr(train_arg, 'warmup_epoch') and hasattr(train_arg, 'warmup'):
@@ -30,7 +34,22 @@ class CMD(object):
                 # Soft gradients
                 loss, z_l = self.model.loss(x, partition=self.partition, soft=True)
                 if hasattr(train_arg, 'dambda_warmup'):
-                    self.dambda = self.model.entropy_rules(probs=True).mean()
+                    # ent = self.model.entropy_rules().mean()
+                    # emax = self.model.max_entropy(self.model.NT_T**2)
+                    # self.dambda = (emax - ent) / emax
+
+                    ent = self.model.entropy_rules().mean()
+                    emax = self.model.get_max_entropy()
+                    ent = (emax - ent) / emax
+                    factor = min(1, max(0, (self.iter-self.num_batch*2)/(self.num_batch*5)))
+                    self.dambda = ent + factor * (1-ent)
+
+                    # self.dambda = self.model.entropy_rules(probs=True).mean()
+
+                    # ent = self.model.entropy_rules(probs=True).mean()
+                    # factor = min(1, max(0, (self.iter-20000)/70000))
+                    # factor = min(1, self.iter/self.total_iter)
+                    # self.dambda = ent + factor * (1-ent)
                 else:
                     self.dambda = 1
                 records = self.model.soft_backward(
@@ -44,6 +63,10 @@ class CMD(object):
                 loss = self.model.loss(x, partition=self.partition)
                 loss.backward()
                 records = None
+
+            if heatmap_save_flag:
+                self.model.save_rule_heatmap(f'{heatmap_dir}/rule_dist_{self.iter}.png')
+                heatmap_save_flag = False
             
             if train_arg.clip > 0:
                 nn.utils.clip_grad_norm_(self.model.parameters(),

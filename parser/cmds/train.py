@@ -94,6 +94,9 @@ class Train(CMD):
                 self.min_len = train_arg.min_len
 
             train_loader = dataset.train_dataloader(max_len=self.max_len, min_len=self.min_len)
+            if epoch == 1:
+                self.num_batch = len(train_loader)
+                self.total_iter = self.num_batch * train_arg.max_epoch
 
             # print_depth = self.model.depth if hasattr(self.model, 'depth') or self.model.depth == 0 else 'Not estimate.'
             # log.info(f'GIL Depth: {print_depth}')
@@ -173,7 +176,7 @@ class Train(CMD):
                 }
                 torch.save(
                    obj=checkpoint,
-                   f = args.save_dir + "/best.pt"
+                   f=args.save_dir + "/best.pt"
                 )
                 log.info(f"{t}s elapsed (saved)\n")
             else:

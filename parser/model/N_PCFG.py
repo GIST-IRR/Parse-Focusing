@@ -52,7 +52,7 @@ class NeuralPCFG(PCFG_module):
             if p.dim() > 1:
                 torch.nn.init.xavier_uniform_(p)
 
-    def save_rule_heatmap(self):
+    def save_rule_heatmap(self, filename='rules_prop.png'):
         plt.rcParams['figure.figsize'] = (64, 48)
         dfs = [r.clone().detach().cpu().numpy() for r in self.rules['rule'][0]]
         vmin = self.rules['rule'][0].min()
@@ -62,7 +62,7 @@ class NeuralPCFG(PCFG_module):
         for df, ax in zip(dfs, axs.flat):
             pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
         # fig.colorbar(pc)
-        plt.savefig('tmp_rules_prop_hardBCL.png')
+        plt.savefig(filename)
 
     def get_max_entropy(self):
         return 2 * math.log(self.NT_T)
