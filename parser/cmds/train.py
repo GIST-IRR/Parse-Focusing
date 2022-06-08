@@ -187,6 +187,16 @@ class Train(CMD):
             else:
                 log.info(f"{t}s elapsed\n")
 
+            # save the last model
+            checkpoint = {
+                'epoch': epoch,
+                'model': self.model.state_dict()
+            }
+            torch.save(
+                obj=checkpoint,
+                f=args.save_dir + '/last.pt'
+            )
+
             total_time += t
             if train_arg.patience > 0 and epoch - best_e >= train_arg.patience:
                 if hasattr(self.train_arg, 'change') and self.train_arg.change:
