@@ -33,11 +33,11 @@ class CMD(object):
                 and hasattr(train_arg, 'soft_loss_mode'):
                 # Soft gradients
                 loss, z_l = self.model.loss(x, partition=self.partition, soft=True)
-                if hasattr(train_arg, 'dambda_warmup'):
+                if hasattr(train_arg, 'dambda_warmup') and train_arg.dambda_warmup:
                     # self.dambda = self.model.entropy_rules(probs=True, reduce='mean')
 
                     ent = self.model.entropy_rules(probs=True, reduce='mean')
-                    factor = min(1, max(0, (self.iter-self.num_batch*train_arg.warmup_start)/(self.num_batch*train_arg.warmup_epoch)))
+                    factor = min(1, max(0, (self.iter-self.num_batch*train_arg.warmup_start)/(self.num_batch*train_arg.warmup_iter)))
                     self.dambda = ent + factor * (1-ent)
 
                     # self.dambda = self.model.entropy_rules(probs=True).mean()
@@ -60,8 +60,8 @@ class CMD(object):
                 loss.backward()
                 records = None
 
-            if heatmap_save_flag:
-                self.model.save_rule_heatmap(f'{heatmap_dir}/rule_dist_{self.iter}.png')
+            if hasattr(train_arg, 'heatmap') and train_arg.heatmap and heatmap_save_flag:
+                self.model.save_rule_heatmap(dirname=heatmap_dir, filename=f'rule_dist_{self.iter}.png')
                 heatmap_save_flag = False
             
             if train_arg.clip > 0:
