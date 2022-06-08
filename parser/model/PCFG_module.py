@@ -3,6 +3,8 @@ import torch
 import torch.nn as nn
 import torch.distributions as dist
 
+import math
+
 class PCFG_module(nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -26,11 +28,43 @@ class PCFG_module(nn.Module):
                 self.num_trees_cache[len] = num
             return num
 
-    def get_max_entropy(self):
-        raise NotImplementedError('Add to each PCFGs')
+    def max_entropy(self, num):
+        return math.log(num)
 
-    def entropy_rules(self):
-        raise NotImplementedError('Add to each PCFGs')
+    def _entropy(self, rule, batch=False, reduce='none', probs=False):
+        if rule.dim() == 2:
+            rule = rule.unsqueeze(1)
+        elif rule.dim() == 3:
+            pass
+        elif rule.dim() == 4:
+            rule = rule.reshape(*rule.shape[:2], -1)
+        else:
+            raise ArgumentError(
+                f'Wrong size of rule tensor. The allowed size is (2, 3, 4), but given tensor is {rule.dim()}'
+            )
+
+        b, n_parent, n_children = rule.shape
+        if batch:
+            ent = rule.new_zeros((b, n_parent))
+            for i in range(b):
+                for j in range(n_parent):
+                    ent[i, j] = dist.categorical.Categorical(logits=rule[i, j]).entropy()
+        else:
+            rule = rule[0]
+            ent = rule.new_zeros((n_parent, ))
+            for i in range(n_parent):
+                ent[i] = dist.categorical.Categorical(logits=rule[i]).entropy()
+
+        if reduce == 'mean':
+            ent = ent.mean(-1)
+        elif reduce == 'sum':
+            ent = ent.sum(-1)
+
+        if probs:
+            emax = self.max_entropy(n_children)
+            ent = (emax - ent) / emax
+        
+        return ent
 
     def update_depth(self, depth):
         self.depth = depth
@@ -164,9 +198,6 @@ class PCFG_module(nn.Module):
             # g_z_l = torch.cat([g.reshape(b, -1) for g in g_z_l.values()], dim=-1)
             # g_r = torch.cat([g.reshape(b, -1) for g in g_r.values()], dim=-1)
             self.backward_rules(g_r)
-            # z_norm = batch_dot(g_z_l, g_z_l).sqrt()
-            # total_loss = (loss + z_l + proj_scale + z_norm).mean()
-            # total_loss.backward()
         elif target == 'parameter':
             # grad_norm = g_orth_norm.mean()
             # grad_norm.backward()

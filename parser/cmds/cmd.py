@@ -34,14 +34,10 @@ class CMD(object):
                 # Soft gradients
                 loss, z_l = self.model.loss(x, partition=self.partition, soft=True)
                 if hasattr(train_arg, 'dambda_warmup'):
-                    # ent = self.model.entropy_rules().mean()
-                    # emax = self.model.max_entropy(self.model.NT_T**2)
-                    # self.dambda = (emax - ent) / emax
+                    # self.dambda = self.model.entropy_rules(probs=True, reduce='mean')
 
-                    ent = self.model.entropy_rules().mean()
-                    emax = self.model.get_max_entropy()
-                    ent = (emax - ent) / emax
-                    factor = min(1, max(0, (self.iter-self.num_batch*2)/(self.num_batch*5)))
+                    ent = self.model.entropy_rules(probs=True, reduce='mean')
+                    factor = min(1, max(0, (self.iter-self.num_batch*train_arg.warmup_start)/(self.num_batch*train_arg.warmup_epoch)))
                     self.dambda = ent + factor * (1-ent)
 
                     # self.dambda = self.model.entropy_rules(probs=True).mean()

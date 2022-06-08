@@ -1,3 +1,4 @@
+from argparse import ArgumentError
 import torch
 import torch.nn as nn
 import torch.distributions as dist
@@ -53,7 +54,7 @@ class NeuralPCFG(PCFG_module):
                 torch.nn.init.xavier_uniform_(p)
 
     def save_rule_heatmap(self, filename='rules_prop.png'):
-        plt.rcParams['figure.figsize'] = (64, 48)
+        plt.rcParams['figure.figsize'] = (70, 50)
         dfs = [r.clone().detach().cpu().numpy() for r in self.rules['rule'][0]]
         vmin = self.rules['rule'][0].min()
         vmax = self.rules['rule'][0].max()
@@ -61,70 +62,22 @@ class NeuralPCFG(PCFG_module):
         fig, axs = plt.subplots(nrows=5, ncols=6)
         for df, ax in zip(dfs, axs.flat):
             pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
-        # fig.colorbar(pc)
-        plt.savefig(filename)
-
-    def get_max_entropy(self):
-        return 2 * math.log(self.NT_T)
+            fig.colorbar(pc, ax=ax)
+        plt.savefig(filename, bbox_inches='tight')
     
-    def max_entropy(self, num):
-        return math.log(num)
+    def entropy_root(self, batch=False, probs=False, reduce='none'):
+        return self._entropy(self.rules['root'], batch=batch, probs=probs, reduce=reduce)
 
-    def entropy_root(self, batch=False, probs=False):
-        root = self.rules['root']
-        if batch:
-            b = root.shape[0]
-            ent = root.new_zeros((b, ))
-            for i in range(b):
-                ent[i] = dist.categorical.Categorical(logits=root[i])
-        else:
-            root = root[0]
-            ent = dist.categorical.Categorical(logits=root).entropy().unsqueeze(-1)
-        if probs:
-            emax = self.max_entropy(root.shape[-1])
-            ent = (emax - ent) / emax
-        return ent
+    def entropy_rules(self, batch=False, probs=False, reduce='none'):
+        return self._entropy(self.rules['rule'], batch=batch, probs=probs, reduce=reduce)
 
-    def entropy_rules(self, batch=False, probs=False):
-        rule = self.rules['rule'].reshape(self.rules['rule'].shape[0], self.NT, -1)
-        if batch:
-            b = rule.shape[0]
-            ent = rule.new_zeros((b, self.NT))
-            for i in range(b):
-                for j in range(self.NT):
-                    ent[i, j] = dist.categorical.Categorical(logits=rule[i, j]).entropy()
-        else:
-            rule = rule[0]
-            ent = rule.new_zeros((self.NT, ))
-            for i, r in enumerate(rule):
-                ent[i] = dist.categorical.Categorical(logits=r).entropy()
-        if probs:
-            emax = self.max_entropy(rule.shape[-1])
-            ent = (emax - ent) / emax
-        return ent
-
-    def entropy_terms(self, batch=False, probs=False):
-        terms = self.rules['unary']
-        if batch:
-            b = terms.shape[0]
-            ent = terms.new_zeros((b, self.T))
-            for i in range(b):
-                for j in range(self.T):
-                    ent[i, j] = dist.categorical.Categorical(logits=terms[i, j]).entropy()
-        else:
-            terms = terms[0]
-            ent = terms.new_zeros((self.T, ))
-            for i, t in enumerate(terms):
-                ent[i] = dist.categorical.Categorical(logits=t).entropy()
-        if probs:
-            emax = self.max_entropy(terms.shape[-1])
-            ent = (emax - ent) / emax
-        return ent
+    def entropy_terms(self, batch=False, probs=False, reduce='none'):
+        return self._entropy(self.rules['unary'], batch=batch, probs=probs, reduce=reduce)
 
     def get_entropy(self, batch=False, probs=False, reduce='mean'):
-        r_ent = self.entropy_root(batch=batch, probs=probs)
-        n_ent = self.entropy_rules(batch=batch, probs=probs)
-        t_ent = self.entropy_terms(batch=batch, probs=probs)
+        r_ent = self.entropy_root(batch=batch, probs=probs, reduce=reduce)
+        n_ent = self.entropy_rules(batch=batch, probs=probs, reduce=reduce)
+        t_ent = self.entropy_terms(batch=batch, probs=probs, reduce=reduce)
         
         # ent_prob = torch.cat([r_ent, n_ent, t_ent])
         # ent_prob = ent_prob.mean()
@@ -174,8 +127,7 @@ class NeuralPCFG(PCFG_module):
     def loss(self, input, partition=False, soft=False):
         self.rules = self.forward(input)
         terms = self.term_from_unary(input, self.rules['unary'])
-        # self.save_rule_heatmap()
-        # self.entropy_rules()
+
         num_t = self.num_trees(input['seq_len'][0])
         num_t = num_t if num_t != 1 else 2
 
@@ -191,7 +143,6 @@ class NeuralPCFG(PCFG_module):
     def evaluate(self, input, decode_type, depth=0, depth_mode=False, **kwargs):
         self.rules = self.forward(input)
         terms = self.term_from_unary(input, self.rules['unary'])
-        # self.save_rule_heatmap()
 
         if decode_type == 'viterbi':
             result = self.pcfg(self.rules, terms, lens=input['seq_len'], viterbi=True, mbr=False)

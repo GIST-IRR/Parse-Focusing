@@ -71,6 +71,14 @@ class Train(CMD):
         self.total_loss = 0
         self.total_len = 0
         self.dambda = 0
+        # iteration setup
+        if hasattr(train_arg, 'total_iter'):
+            self.num_batch = len(dataset.train_dataloader(max_len=train_arg.max_len))
+            train_arg.max_epoch = math.ceil(train_arg.total_iter / self.num_batch)
+            train_arg.total_iter = train_arg.max_epoch * self.num_batch
+        if hasattr(train_arg, 'dambda_warmup') and train_arg.dambda_warmup:
+            train_arg.warmup_start = math.ceil(train_arg.max_epoch*train_arg.warmup_start)
+            train_arg.warmup_epoch = math.ceil(train_arg.max_epoch*(train_arg.warmup_end-train_arg.warmup_start))
 
         for epoch in range(start_epoch, train_arg.max_epoch + 1):
             '''
@@ -97,9 +105,6 @@ class Train(CMD):
             if epoch == 1:
                 self.num_batch = len(train_loader)
                 self.total_iter = self.num_batch * train_arg.max_epoch
-
-            # print_depth = self.model.depth if hasattr(self.model, 'depth') or self.model.depth == 0 else 'Not estimate.'
-            # log.info(f'GIL Depth: {print_depth}')
 
             train_loader_autodevice = DataPrefetcher(train_loader, device=self.device)
             eval_loader_autodevice = DataPrefetcher(eval_loader, device=self.device)
