@@ -10,6 +10,7 @@ from .PCFG_module import PCFG_module
 
 import matplotlib.pyplot as plt
 import math
+import os
 
 class NeuralPCFG(PCFG_module):
     def __init__(self, args, dataset):
@@ -53,17 +54,42 @@ class NeuralPCFG(PCFG_module):
             if p.dim() > 1:
                 torch.nn.init.xavier_uniform_(p)
 
-    def save_rule_heatmap(self, filename='rules_prop.png'):
+    def save_rule_heatmap(self, dirname='heatmap', filename='rules_prop.png'):
         plt.rcParams['figure.figsize'] = (70, 50)
         dfs = [r.clone().detach().cpu().numpy() for r in self.rules['rule'][0]]
+        # min max in seed
         vmin = self.rules['rule'][0].min()
         vmax = self.rules['rule'][0].max()
-
-        fig, axs = plt.subplots(nrows=5, ncols=6)
-        for df, ax in zip(dfs, axs.flat):
+        fig, axes = plt.subplots(nrows=5, ncols=6)
+        for df, ax in zip(dfs, axes.flat):
             pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
             fig.colorbar(pc, ax=ax)
-        plt.savefig(filename, bbox_inches='tight')
+        path = os.path.join(dirname, f'local_{filename}')
+        plt.savefig(path, bbox_inches='tight')
+        plt.cla()
+
+        # min max in local
+        fig, axes = plt.subplots(nrows=5, ncols=6)
+        for df, ax in zip(dfs, axes.flat):
+            vmin = df.min()
+            vmax = df.max()
+            pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
+            fig.colorbar(pc, ax=ax)
+        path = os.path.join(dirname, f'parent_{filename}')
+        plt.savefig(path, bbox_inches='tight')
+        plt.cla()
+
+        # absolute min max
+        vmin = -100.0
+        vmax = 0.0
+        fig, axes = plt.subplots(nrows=5, ncols=6)
+        for df, ax in zip(dfs, axes.flat):
+            pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
+            fig.colorbar(pc, ax=ax)
+        path = os.path.join(dirname, f'global_{filename}')
+        plt.savefig(path, bbox_inches='tight')
+        plt.cla()
+
     
     def entropy_root(self, batch=False, probs=False, reduce='none'):
         return self._entropy(self.rules['root'], batch=batch, probs=probs, reduce=reduce)
