@@ -89,7 +89,7 @@ class PCFG_module(nn.Module):
             p.grad = p.grad + grad[total_num:total_num+num].reshape(*shape)
             total_num += num
 
-    def get_rules_grad(self):
+    def get_rules_grad(self, flatten=False):
         b = 0
         grad = []
         for i, (k, v) in enumerate(self.rules.items()):
@@ -97,8 +97,28 @@ class PCFG_module(nn.Module):
                 continue
             if i == 0:
                 b = v.shape[0]
-            grad.append(v.grad.reshape(b, -1))
+            grad.append(v.grad)
+        if flatten:
+            grad = [g.reshape(b, -1) for g in grad]
         return grad
+
+    def get_X_Y_Z(self, rule):
+        NTs = slice(0, self.NT)
+        return rule[:, :, NTs, NTs]
+
+    def get_X_Y_z(self, rule):
+        NTs = slice(0, self.NT)
+        Ts = slice(self.NT, self.NT+self.T)
+        return rule[:, :, NTs, Ts]
+
+    def get_X_y_Z(self, rule):
+        NTs = slice(0, self.NT)
+        Ts = slice(self.NT, self.NT+self.T)
+        return rule[:, :, Ts, NTs]
+
+    def get_X_y_z(self, rule):
+        Ts = slice(self.NT, self.NT+self.T)
+        return rule[:, :, Ts, Ts]
 
     def get_rules_grad_category(self):
         b = 0
@@ -155,6 +175,7 @@ class PCFG_module(nn.Module):
         if target == 'rule':
             g_loss = self.get_rules_grad() # main vector
             # g_loss = self.get_rules_grad_category()
+            # self.save_rule_heatmap(g_loss[-1][0], dirname='figure', filename='loss_gradient.png', abs=False, symbol=False)
             self.clear_rules_grad()
         elif target == 'parameter':
             g_loss = self.get_grad()
@@ -165,14 +186,31 @@ class PCFG_module(nn.Module):
         if target == 'rule':
             g_z_l = self.get_rules_grad()
             # g_z_l = self.get_rules_grad_category()
+            # self.save_rule_heatmap(g_z_l[-1][0], dirname='figure', filename='z_gradient.png', abs=False, symbol=False)
             self.clear_rules_grad()
         elif target == 'parameter':
             g_z_l = self.get_grad()
             g_z_l_norm = batch_dot(g_z_l, g_z_l).sqrt()
         optimizer.zero_grad()
 
+        # if target == 'parameter':
+        #     g_rule = self.get_rules_grad()
+        #     self.save_rule_heatmap(g_rule[-1][0], dirname='figure', filename='rule_gradient.png', abs=False, symbol=False)
+
+        # tmp
+        # TODO: remove unused computing
+        # loss.backward(retain_graph=True)
+        # grad_output = torch.tensor(dambda)
+        # z_l.backward(grad_output, retain_graph=True)
+        # tmp_g_z_l = self.get_grad()
+        # optimizer.zero_grad()
+
         if mode == 'both':
-            g_r = g_loss + dambda * g_z_l
+            if target == 'rule':
+                g_r = [g_l + dambda * g_z for g_l, g_z in zip(g_loss, g_z_l)]
+                # self.save_rule_heatmap(g_r[-1][0], dirname='figure', filename='rule_gradient.png', abs=False, symbol=False)
+            elif target == 'parameter':
+                g_r = g_loss + dambda * g_z_l
         elif mode == 'projection':
             g_proj, proj_scale = projection(g_z_l, g_loss)
             g_orth = g_z_l - g_proj
@@ -190,6 +228,7 @@ class PCFG_module(nn.Module):
             g_oproj = g_z_l - projection(g_z_l, g_loss)
         # dL_BCLs = dL_w + oproj_{dL_w}{dZ_l}
             g_r = g_loss + g_oproj
+
         # Re-calculate soft BCL
         if target == 'rule':
             # self.backward_rules_category(g_r)

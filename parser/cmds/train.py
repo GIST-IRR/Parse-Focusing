@@ -72,13 +72,17 @@ class Train(CMD):
         self.total_len = 0
         self.dambda = 0
         # iteration setup
+        self.num_batch = len(dataset.train_dataloader(max_len=train_arg.max_len))
         if hasattr(train_arg, 'total_iter'):
-            self.num_batch = len(dataset.train_dataloader(max_len=train_arg.max_len))
             train_arg.max_epoch = math.ceil(train_arg.total_iter / self.num_batch)
-            train_arg.total_iter = train_arg.max_epoch * self.num_batch
+        train_arg.total_iter = train_arg.max_epoch * self.num_batch
         if hasattr(train_arg, 'dambda_warmup') and train_arg.dambda_warmup:
-            train_arg.warmup_iter = math.ceil(train_arg.max_epoch*(train_arg.warmup_end-train_arg.warmup_start))
-            train_arg.warmup_start = math.ceil(train_arg.max_epoch*train_arg.warmup_start)
+            # train_arg.warmup_iter = math.ceil(train_arg.max_epoch*(train_arg.warmup_end-train_arg.warmup_start))
+            # train_arg.warmup_start = math.ceil(train_arg.max_epoch*train_arg.warmup_start)
+
+            train_arg.warmup_iter = int(train_arg.total_iter * train_arg.dambda_warmup)
+            train_arg.warmup_start = int(train_arg.total_iter * (train_arg.dambda_warmup - 0.1))
+            train_arg.warmup_end = int(train_arg.total_iter * (train_arg.dambda_warmup + 0.1))
 
         for epoch in range(start_epoch, train_arg.max_epoch + 1):
             '''

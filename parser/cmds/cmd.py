@@ -34,11 +34,22 @@ class CMD(object):
                 # Soft gradients
                 loss, z_l = self.model.loss(x, partition=self.partition, soft=True)
                 if hasattr(train_arg, 'dambda_warmup') and train_arg.dambda_warmup:
+                    # sigmoid
+                    if self.iter < train_arg.warmup_start:
+                        self.dambda = 0
+                    elif self.iter >= train_arg.warmup_start and self.iter < train_arg.warmup_end:
+                        self.dambda = 1 / (1 + math.exp((-self.iter+train_arg.warmup_iter)/(self.num_batch/8)))
+                    else:
+                        self.dambda = 1
+
                     # self.dambda = self.model.entropy_rules(probs=True, reduce='mean')
 
-                    ent = self.model.entropy_rules(probs=True, reduce='mean')
-                    factor = min(1, max(0, (self.iter-self.num_batch*train_arg.warmup_start)/(self.num_batch*train_arg.warmup_iter)))
-                    self.dambda = ent + factor * (1-ent)
+                    # if self.iter > self.num_batch * train_arg.warmup_start:
+                    #     ent = self.model.entropy_rules(probs=True, reduce='mean')
+                    #     factor = min(1, max(0, (self.iter-self.num_batch*train_arg.warmup_start)/(self.num_batch*train_arg.warmup_iter)))
+                    #     self.dambda = ent + factor * (1-ent)
+                    # else:
+                    #     self.dambda = 0
 
                     # self.dambda = self.model.entropy_rules(probs=True).mean()
 

@@ -54,41 +54,46 @@ class NeuralPCFG(PCFG_module):
             if p.dim() > 1:
                 torch.nn.init.xavier_uniform_(p)
 
-    def save_rule_heatmap(self, dirname='heatmap', filename='rules_prop.png'):
+    def save_rule_heatmap(self, rules=None, dirname='heatmap', filename='rules_prop.png', abs=True, local=True, symbol=True):
+        if rules is None:
+            rules = self.rules['rule'][0]
         plt.rcParams['figure.figsize'] = (70, 50)
-        dfs = [r.clone().detach().cpu().numpy() for r in self.rules['rule'][0]]
+        dfs = [r.clone().detach().cpu().numpy() for r in rules]
         # min max in seed
-        vmin = self.rules['rule'][0].min()
-        vmax = self.rules['rule'][0].max()
-        fig, axes = plt.subplots(nrows=5, ncols=6)
-        for df, ax in zip(dfs, axes.flat):
-            pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
-            fig.colorbar(pc, ax=ax)
-        path = os.path.join(dirname, f'local_{filename}')
-        plt.savefig(path, bbox_inches='tight')
-        plt.cla()
+        if local:
+            vmin = rules.min()
+            vmax = rules.max()
+            fig, axes = plt.subplots(nrows=5, ncols=6)
+            for df, ax in zip(dfs, axes.flat):
+                pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
+                fig.colorbar(pc, ax=ax)
+            path = os.path.join(dirname, f'local_{filename}')
+            plt.savefig(path, bbox_inches='tight')
+            plt.cla()
 
         # min max in local
-        fig, axes = plt.subplots(nrows=5, ncols=6)
-        for df, ax in zip(dfs, axes.flat):
-            vmin = df.min()
-            vmax = df.max()
-            pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
-            fig.colorbar(pc, ax=ax)
-        path = os.path.join(dirname, f'parent_{filename}')
-        plt.savefig(path, bbox_inches='tight')
-        plt.cla()
+        if symbol:
+            fig, axes = plt.subplots(nrows=5, ncols=6)
+            for df, ax in zip(dfs, axes.flat):
+                vmin = df.min()
+                vmax = df.max()
+                pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
+                fig.colorbar(pc, ax=ax)
+            path = os.path.join(dirname, f'symbol_{filename}')
+            plt.savefig(path, bbox_inches='tight')
+            plt.cla()
 
         # absolute min max
-        vmin = -100.0
-        vmax = 0.0
-        fig, axes = plt.subplots(nrows=5, ncols=6)
-        for df, ax in zip(dfs, axes.flat):
-            pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
-            fig.colorbar(pc, ax=ax)
-        path = os.path.join(dirname, f'global_{filename}')
-        plt.savefig(path, bbox_inches='tight')
-        plt.cla()
+        if abs:
+            vmin = -100.0
+            vmax = 0.0
+            fig, axes = plt.subplots(nrows=5, ncols=6)
+            for df, ax in zip(dfs, axes.flat):
+                pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
+                fig.colorbar(pc, ax=ax)
+            path = os.path.join(dirname, f'global_{filename}')
+            plt.savefig(path, bbox_inches='tight')
+            plt.cla()
 
     
     def entropy_root(self, batch=False, probs=False, reduce='none'):
@@ -154,8 +159,8 @@ class NeuralPCFG(PCFG_module):
         self.rules = self.forward(input)
         terms = self.term_from_unary(input, self.rules['unary'])
 
-        num_t = self.num_trees(input['seq_len'][0])
-        num_t = num_t if num_t != 1 else 2
+        # num_t = self.num_trees(input['seq_len'][0])
+        # num_t = num_t if num_t != 1 else 2
 
         result = self.pcfg(self.rules, terms, lens=input['seq_len'])
         if partition:
