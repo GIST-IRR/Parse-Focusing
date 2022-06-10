@@ -32,17 +32,18 @@ class Train(CMD):
         dataset = DataModule(args, generator=generator, worker_init_fn=seed_worker)
         self.idx2word = np.array(list(dataset.word_vocab.idx2word.values())) # for word_vocab
         self.model = get_model(args.model, dataset)
-        
+        self.optimizer = get_optimizer(args.optimizer, self.model)
+
         start_epoch = 1
         if hasattr(args, 'pretrained_model'):
             with open(args.pretrained_model, 'rb') as f:
                 checkpoint = torch.load(f, map_location=self.device)
                 start_epoch = checkpoint['epoch'] + 1
                 self.model.load_state_dict(checkpoint['model'])
+                self.optimizer.load_state_dict(checkpoint['optimizer'])
 
         create_save_path(args)
         log = get_logger(args)
-        self.optimizer = get_optimizer(args.optimizer, self.model)
         log.info("Create the model")
         log.info(f"{self.model}\n")
         total_time = timedelta()
@@ -181,7 +182,8 @@ class Train(CMD):
                 best_e = epoch
                 checkpoint = {
                     'epoch': epoch,
-                    'model': self.model.state_dict()
+                    'model': self.model.state_dict(),
+                    'optimizer': self.optimizer.state_dict()
                 }
                 torch.save(
                    obj=checkpoint,
@@ -194,7 +196,8 @@ class Train(CMD):
             # save the last model
             checkpoint = {
                 'epoch': epoch,
-                'model': self.model.state_dict()
+                'model': self.model.state_dict(),
+                'optimizer': self.optimizer.state_dict()
             }
             torch.save(
                 obj=checkpoint,
