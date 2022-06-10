@@ -16,7 +16,6 @@ class CMD(object):
         self.model.train()
         t = tqdm(loader, total=int(len(loader)),  position=0, leave=True)
         train_arg = self.args.train
-        heatmap_save_flag = True
         heatmap_dir = os.path.join(self.args.save_dir, 'heatmap')
         if not os.path.exists(heatmap_dir):
             os.makedirs(heatmap_dir, exist_ok=True)
@@ -71,9 +70,9 @@ class CMD(object):
                 loss.backward()
                 records = None
 
-            if hasattr(train_arg, 'heatmap') and train_arg.heatmap and heatmap_save_flag:
-                self.model.save_rule_heatmap(dirname=heatmap_dir, filename=f'rule_dist_{self.iter}.png')
-                heatmap_save_flag = False
+            if hasattr(train_arg, 'heatmap') and train_arg.heatmap:
+                if self.iter % int(self.total_iter/10) == 0:
+                    self.model.save_rule_heatmap(dirname=heatmap_dir, filename=f'rule_dist_{self.iter}.png')
             
             if train_arg.clip > 0:
                 nn.utils.clip_grad_norm_(self.model.parameters(),
