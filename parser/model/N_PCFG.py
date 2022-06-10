@@ -69,7 +69,7 @@ class NeuralPCFG(PCFG_module):
                 fig.colorbar(pc, ax=ax)
             path = os.path.join(dirname, f'local_{filename}')
             plt.savefig(path, bbox_inches='tight')
-            plt.cla()
+            plt.close()
 
         # min max in local
         if symbol:
@@ -81,7 +81,7 @@ class NeuralPCFG(PCFG_module):
                 fig.colorbar(pc, ax=ax)
             path = os.path.join(dirname, f'symbol_{filename}')
             plt.savefig(path, bbox_inches='tight')
-            plt.cla()
+            plt.close()
 
         # absolute min max
         if abs:
@@ -93,7 +93,7 @@ class NeuralPCFG(PCFG_module):
                 fig.colorbar(pc, ax=ax)
             path = os.path.join(dirname, f'global_{filename}')
             plt.savefig(path, bbox_inches='tight')
-            plt.cla()
+            plt.close()
 
     
     def entropy_root(self, batch=False, probs=False, reduce='none'):
