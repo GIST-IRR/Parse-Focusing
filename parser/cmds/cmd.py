@@ -159,16 +159,25 @@ class CMD(object):
                     self.estimated_depth_by_length[l][d] = 1
 
             if eval_depth:
-                metric_f1(result['prediction'], y['gold_tree'], y['depth'], lens=True, nonterminal=True)
-                # metric_f1(result['prediction'], y['gold_tree'], y['depth'], lens=True)
+                if len(result['prediction'][0][0]) >= 3:
+                    metric_f1(result['prediction'], y['gold_tree'], y['depth'], lens=True, nonterminal=True)
+                else:
+                    metric_f1(result['prediction'], y['gold_tree'], y['depth'], lens=True)
             else:
-                metric_f1(result['prediction'], y['gold_tree'], lens=True, nonterminal=True)
+                if len(result['prediction'][0][0]) >= 3:
+                    metric_f1(result['prediction'], y['gold_tree'], lens=True, nonterminal=True)
+                else:
+                    metric_f1(result['prediction'], y['gold_tree'], lens=True)
             if left_binarization:
-                metric_f1_left(result['prediction'], y['gold_tree_left'], y['depth_left'], lens=True, nonterminal=True)
-                # metric_f1_left(result['prediction'], y['gold_tree_left'], y['depth_left'], lens=True)
+                if len(result['prediction'][0][0]) >= 3:
+                    metric_f1_left(result['prediction'], y['gold_tree_left'], y['depth_left'], lens=True, nonterminal=True)
+                else:
+                    metric_f1_left(result['prediction'], y['gold_tree_left'], y['depth_left'], lens=True)
             if right_binarization:
-                metric_f1_right(result['prediction'], y['gold_tree_right'], y['depth_right'], lens=True, nonterminal=True)
-                # metric_f1_right(result['prediction'], y['gold_tree_right'], y['depth_right'], lens=True)
+                if len(result['prediction'][0][0]) >= 3:
+                    metric_f1_right(result['prediction'], y['gold_tree_right'], y['depth_right'], lens=True, nonterminal=True)
+                else:
+                    metric_f1_right(result['prediction'], y['gold_tree_right'], y['depth_right'], lens=True)
 
             self.pf_sum = self.pf_sum + torch.sum(result['depth'], dim=0).detach().cpu()
             metric_ll(result['partition'], x['seq_len'])

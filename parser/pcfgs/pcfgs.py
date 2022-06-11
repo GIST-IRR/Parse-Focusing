@@ -84,8 +84,10 @@ class PCFG_base(nn.Module):
                 if depth:
                     return self._cky_zero_order_depth(marginals.detach(), lens)
                 else:
-                    # return self._cky_zero_order(marginals.detach(), lens)
-                    return self._cky_zero_order_tag(marginals.detach(), tag_marginals.detach(), lens)
+                    # MBR decoding show the difference of perfermance between with and without tagger
+                    # Before find the ways to apply tagger without loss of performance, use without tagger
+                    return self._cky_zero_order(marginals.detach().sum(-1), lens)
+                    # return self._cky_zero_order_tag(marginals.detach(), tag_marginals.detach(), lens)
             else:
                 viterbi_spans = marginals.nonzero().tolist()
                 for span in viterbi_spans:
