@@ -17,6 +17,7 @@ class PCFG(PCFG_base):
         S = NT + T
 
         s = terms.new_zeros(batch, N, N, NT).fill_(-1e9)
+
         NTs = slice(0, NT)
         Ts = slice(NT, S)
 
@@ -25,7 +26,9 @@ class PCFG(PCFG_base):
         X_Y_z = rule[:, :, NTs, Ts].reshape(batch, NT, NT * T)
         X_y_z = rule[:, :, Ts, Ts].reshape(batch, NT, T * T)
 
-        span_indicator = rule.new_zeros(batch, N, N).requires_grad_(viterbi or mbr)
+        # span_indicator = rule.new_zeros(batch, N, N).requires_grad_(viterbi or mbr)
+        span_indicator = rule.new_zeros(batch, N, N, NT).requires_grad_(viterbi or mbr)
+        tag_indicator = rule.new_zeros(batch, N-1, T).requires_grad_(viterbi or mbr)
 
         def contract(x, dim=-1):
             if viterbi:
@@ -58,7 +61,6 @@ class PCFG(PCFG_base):
             b_n_x = contract(b_n_yz.unsqueeze(-2) + rule.unsqueeze(1))
             return b_n_x
 
-
         @checkpoint
         def XyZ(y, Z, rule):
             n = Z.shape[1]
@@ -67,6 +69,7 @@ class PCFG(PCFG_base):
             b_n_x = contract(b_n_yz.unsqueeze(-2) + rule.unsqueeze(1))
             return b_n_x
 
+        terms = terms + tag_indicator # to indicate viterbi tag
 
         for w in range(2, N):
             n = N - w
@@ -75,7 +78,8 @@ class PCFG(PCFG_base):
             Z_term = terms[:, w - 1:, None, :]
 
             if w == 2:
-                diagonal_copy_(s, Xyz(Y_term, Z_term, X_y_z) + span_indicator[:, torch.arange(n), torch.arange(n) + w].unsqueeze(-1), w)
+                # diagonal_copy_(s, Xyz(Y_term, Z_term, X_y_z) + span_indicator[:, torch.arange(n), torch.arange(n) + w].unsqueeze(-1), w)
+                diagonal_copy_(s, Xyz(Y_term, Z_term, X_y_z) + span_indicator[:, torch.arange(n), torch.arange(n) + w], w)
                 continue
 
             x = terms.new_zeros(3, batch, n, NT).fill_(-1e9)
@@ -89,12 +93,13 @@ class PCFG(PCFG_base):
             x[1].copy_(XYz(Y, Z_term, X_Y_z))
             x[2].copy_(XyZ(Y_term, Z, X_y_Z))
 
-            diagonal_copy_(s, contract(x, dim=0) + span_indicator[:, torch.arange(n), torch.arange(n) + w].unsqueeze(-1), w)
+            # diagonal_copy_(s, contract(x, dim=0) + span_indicator[:, torch.arange(n), torch.arange(n) + w].unsqueeze(-1), w)
+            diagonal_copy_(s, contract(x, dim=0) + span_indicator[:, torch.arange(n), torch.arange(n) + w], w)
 
         logZ = contract(s[torch.arange(batch), 0, lens] + root)
 
         if viterbi or mbr:
-            prediction = self._get_prediction(logZ, span_indicator, lens, mbr=mbr)
+            prediction = self._get_prediction(logZ, span_indicator, tag_indicator, lens, mbr=mbr)
             return {'partition': logZ,
                     'prediction': prediction}
 

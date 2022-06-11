@@ -49,6 +49,11 @@ class DataModule():
         train_dataset.add_field("gold_tree", train_data['gold_tree'],padder=None,ignore_type=True)
         val_dataset.add_field("gold_tree", val_data['gold_tree'],padder=None,ignore_type=True)
         test_dataset.add_field("gold_tree", test_data['gold_tree'],padder=None,ignore_type=True)
+        # To eval train dataset
+        train_dataset.set_target("gold_tree")
+        val_dataset.set_target("gold_tree")
+        test_dataset.set_target("gold_tree")
+
         train_dataset.add_seq_len(field_name="word", new_field_name="seq_len")
         val_dataset.add_seq_len(field_name="word", new_field_name="seq_len")
         test_dataset.add_seq_len(field_name="word", new_field_name="seq_len")

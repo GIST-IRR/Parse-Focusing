@@ -69,7 +69,8 @@ class UF1(Metric):
             pred = list(filter(lambda x: not (x[0]==0 and x[1]==length), pred))
             #remove label.
             if nonterminal:
-                label = [g[2] for g in gold]
+                gold_label = [g[2] for g in gold]
+                pred_label = [p[2] for p in pred]
             gold = [g[:2] for g in gold]
             pred = [p[:2] for p in pred]
             gold = list(map(tuple, gold))
@@ -77,21 +78,27 @@ class UF1(Metric):
             for span in pred:
                 if span in gold:
                     self.tp += 1
-                    l = label[gold.index(span)]
-                    if l in self.nt_tp:
-                        self.nt_tp[l] += 1
-                    else:
-                        self.nt_tp[l] = 1
+                    if nonterminal:
+                        pl = pred_label[pred.index(span)]
+                        gl = gold_label[gold.index(span)]
+                        if gl in self.nt_tp:
+                            if pl in self.nt_tp[gl]:
+                                self.nt_tp[gl][pl] += 1
+                            else:
+                                self.nt_tp[gl].update({pl: 1})
+                        else:
+                            self.nt_tp[gl] = {pl: 1}
                 else:
                     self.fp += 1
             for span in gold:
                 if span not in pred:
                     self.fn += 1
-                    l = label[gold.index(span)]
-                    if l in self.nt_fn:
-                        self.nt_fn[l] += 1
-                    else:
-                        self.nt_fn[l] = 1
+                    if nonterminal:
+                        l = gold_label[gold.index(span)]
+                        if l in self.nt_fn:
+                            self.nt_fn[l] += 1
+                        else:
+                            self.nt_fn[l] = 1
 
             #sentence f1
             #remove duplicated span.
@@ -183,12 +190,23 @@ class UF1(Metric):
         result = {}
         for l, tp in self.nt_tp.items():
             fn = self.nt_fn[l] if l in self.nt_fn else 0
+            tp = sum(tp.values())
             result[l] = tp / (tp + fn)
         for l in self.nt_fn.keys():
             if not l in result:
                 result[l] = 0
         result = dict(sorted(result.items()))
         return result
+
+    @property
+    def label_correspondence(self):
+        result = {}
+        for l, tp in self.nt_tp.items():
+            total = sum(tp.values())
+            r = {}
+            for nt in tp:
+                r[nt] = nt / total
+            result[l] = r
 
     @property
     def partition_number(self):

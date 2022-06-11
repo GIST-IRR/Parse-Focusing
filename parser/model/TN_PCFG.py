@@ -43,6 +43,19 @@ class TNPCFG(PCFG_module):
         # Partition function
         self.mode = args.mode if hasattr(args, 'mode') else None
 
+    @torch.no_grad()
+    def entropy_rules(self, batch=False, probs=False, reduce='none'):
+        head = self.rules['head'][0]
+        left = self.rules['left'][0]
+        right = self.rules['right'][0]
+        NT = self.NT
+        NT_T = self.NT + self.T
+        r = self.r
+        rule = (head.view(NT, 1, 1, r) + \
+            left.view(1, NT_T, 1, r) + \
+            right.view(1, 1, NT_T, r)).logsumexp(dim=-1).unsqueeze(0)
+        return self._entropy(rule, batch=batch, reduce=reduce, probs=probs)
+
     def forward(self, input, **kwargs):
         x = input['word']
         b, n = x.shape[:2]

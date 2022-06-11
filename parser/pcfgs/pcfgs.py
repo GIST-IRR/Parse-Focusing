@@ -66,16 +66,8 @@ class PCFG_base(nn.Module):
         #     return self._inside(rules, lens)
         return self._inside(rules, terms, lens, viterbi=viterbi, mbr=mbr)
 
-    # @torch.enable_grad()
-    # def decode(self, rules, lens, viterbi=False, mbr=False, depth=False):
-    #     # if depth:
-    #     #     return self._inside_depth(rules=rules, lens=lens, viterbi=viterbi, mbr=mbr)
-    #     # else:
-    #     #     return self._inside(rules=rules, lens=lens, viterbi=viterbi, mbr=mbr)
-    #     return self._inside(rules=rules, lens=lens, viterbi=viterbi, mbr=mbr)
 
-
-    def _get_prediction(self, logZ, span_indicator, lens, mbr=False, depth=False):
+    def _get_prediction(self, logZ, span_indicator, tag_indicator, lens, mbr=False, depth=False):
         batch, seq_len = span_indicator.shape[:2]
         prediction = [[] for _ in range(batch)]
         if depth:
@@ -87,20 +79,26 @@ class PCFG_base(nn.Module):
             assert logZ.requires_grad
             logZ.sum().backward()
             marginals = span_indicator.grad
+            tag_marginals = tag_indicator.grad
             if mbr:
                 if depth:
                     return self._cky_zero_order_depth(marginals.detach(), lens)
                 else:
-                    return self._cky_zero_order(marginals.detach(), lens)
+                    # return self._cky_zero_order(marginals.detach(), lens)
+                    return self._cky_zero_order_tag(marginals.detach(), tag_marginals.detach(), lens)
             else:
                 viterbi_spans = marginals.nonzero().tolist()
                 for span in viterbi_spans:
                     if depth:
                         prediction[span[0]][span[3]].append((span[1], span[2]))
                     else:
-                        prediction[span[0]].append((span[1], span[2]))
-        return prediction
+                        # prediction[span[0]].append((span[1], span[2]))
+                        prediction[span[0]].append((span[1], span[2], span[3]))
+                viterbi_tags = tag_marginals.nonzero().tolist()
+                for tag in viterbi_tags:
+                    prediction[tag[0]].append((tag[1], tag[1]+1, tag[2]))
 
+        return prediction
 
     @torch.no_grad()
     def _cky_zero_order(self, marginals, lens):
@@ -134,6 +132,71 @@ class PCFG_base(nn.Module):
         lens = lens.tolist()
         spans = [backtrack(p[i], 0, length) for i, length in enumerate(lens)]
         return spans
+
+
+    @torch.no_grad()
+    def _cky_zero_order_tag(self, marginals, tag_marginals, lens):
+        b, N = marginals.shape[:2]
+        NT = marginals.shape[-1]
+        T = tag_marginals.shape[-1]
+
+        s = marginals.new_full((*marginals.shape[:-1], NT+T), -1e9)
+        p = marginals.new_zeros(*marginals.shape[:-1]).long()
+        l = marginals.new_zeros(*marginals.shape[:-1]).long()
+        r = marginals.new_zeros(*marginals.shape[:-1]).long()
+
+        x = torch.cat([diagonal(marginals, 1), tag_marginals], dim=-1)
+        diagonal_copy_(s, x, 1)
+
+        def calculate_index(Y_Z, index):
+            b, n, *_ = Y_Z.shape
+            indices = index.new_zeros(3, b, n)
+            stride = Y_Z.stride()[2:]
+            for i in range(len(stride)):
+                indices[i] = torch.div(index, stride[i], rounding_mode='floor')
+                index = index % stride[i]
+            return indices[0], indices[1], indices[2]
+
+        for w in range(2, N):
+            n = N - w
+            starts = p.new_tensor(range(n))
+            if w == 2:
+                Y = stripe(s, n, w - 1, (0, 1)).unsqueeze(4)
+                Z = stripe(s, n, w - 1, (1, w), 0).unsqueeze(3)
+            else:
+                Y = stripe(s, n, w - 1, (0, 1)).unsqueeze(4)
+                Z = stripe(s, n, w - 1, (1, w), 0).unsqueeze(3)
+
+            Y_Z = (Y + Z)
+            X, index = Y_Z.reshape(b, n, -1).max(-1)
+            split, left, right = calculate_index(Y_Z, index)
+            X = X.unsqueeze(-1)
+
+            x = torch.cat([X + diagonal(marginals, w), X.new_zeros(*X.shape[:-1], T)], dim=-1)
+            diagonal_copy_(s, x, w)
+            diagonal_copy_(p, split + starts.unsqueeze(0) + 1, w)
+            diagonal_copy_(l, left, w)
+            diagonal_copy_(r, right, w)
+
+        X, root_tag = s[torch.arange(b), 0, lens].max(-1) 
+
+        def backtrack_tag(p, i, j, tag, l, r):
+            if j == i + 1:
+                return [(i, j, tag-NT)]
+            split = p[i][j]
+            left = l[i][j]
+            right = r[i][j]
+            ltree = backtrack_tag(p, i, split, left, l, r)
+            rtree = backtrack_tag(p, split, j, right, l, r)
+            return [(i, j, tag)] + ltree + rtree
+
+        p = p.tolist()
+        l = l.tolist()
+        r = r.tolist()
+        root_tag = root_tag.tolist()
+        lens = lens.tolist()
+        spans_tags = [backtrack_tag(p[i], 0, length, root_tag[i], l[i], r[i]) for i, length in enumerate(lens)]
+        return spans_tags
 
     # @torch.no_grad()
     # def _cky_zero_order_depth(self, marginals, lens):
@@ -263,188 +326,3 @@ class PCFG_base(nn.Module):
         for a in arc:
             predicted_arc[a[0]].append((a[1] - 1, a[2] -1 ))
         return predicted_arc
-
-    # @torch.enable_grad()
-    # def depth_partition_function_old(self, rules, lens, mode=None, span=0):
-    #     rule = rules['rule']
-    #     root = rules['root']
-    #     batch, N, NT_T, _ = rule.shape
-    #     T = NT_T - N
-
-    #     D = lens.max() + span + 1
-    #     rule = rule.reshape(batch, N, -1)
-    #     bias = rule.new_zeros(batch, T)
-    #     t = rule.new_zeros(batch, D, N).fill_(-1e9)
-
-    #     # Shorteset parse tree depth: ROOT - NT - T - w (minimum depth 4)
-    #     # without root and words, minimum depth 2.
-    #     # so we can not get any probability for the smaller depth than 2
-    #     for d in range(2, D):
-    #         z_prev = torch.cat((t[:, d - 1], bias), dim=1)
-    #         z = (z_prev[:, :, None] + z_prev[:, None, :]).reshape(batch, -1)
-    #         z = (rule + z[:, None, :]).logsumexp(2)
-    #         z = torch.clamp(z, max=0)
-    #         t[:, d].copy_(z)
-
-    #     if mode == 'full':
-    #         r = (root.unsqueeze(1) + t).logsumexp(2)
-    #         r = torch.cat([r.new_zeros(batch, 2).fill_(-1e9), r], dim=1)
-    #     elif mode == 'fit':
-    #         min_d = lens.log2().ceil().long()
-    #         max_d = lens + span
-    #         min_part = (root + t[torch.arange(batch), min_d]).logsumexp(1)
-    #         max_part = (root + t[torch.arange(batch), max_d]).logsumexp(1)
-    #         r = (max_part.exp() - min_part.exp()).log()
-    #         return r, max_d - min_d
-    #     else:
-    #         r = (root + t[torch.arange(batch), lens + span]).logsumexp(1)
-    #     return r
-
-
-    # @torch.enable_grad()
-    # def depth_partition_function(self, rules, lens, mode=None, span=0, withRootTerm=False):
-    #     rule = rules['rule']
-    #     root = rules['root']
-    #     batch, NT, NT_T, _ = rule.shape
-    #     T = NT_T - NT
-    #     NTs = slice(0, NT)
-    #     Ts = slice(NT, NT_T)
-
-    #     D = lens.max() + span + 1
-    #     X_Y_Z = rule[:, :, NTs, NTs].reshape(batch, NT, -1)
-    #     X_Y_z = rule[:, :, NTs, Ts].reshape(batch, NT, -1)
-    #     X_y_Z = rule[:, :, Ts, NTs].reshape(batch, NT, -1)
-    #     X_y_z = rule[:, :, Ts, Ts].reshape(batch, NT, -1)
-    #     bias = rule.new_zeros(batch, T)
-    #     t = rule.new_zeros(batch, D, NT).fill_(-1e9)
-
-    #     def contract(rule, y, z, dim=-1):
-    #         r = (y[:, :, None] + z[:, None, :]).reshape(batch, -1)
-    #         r = (rule + r[:, None, :]).logsumexp(dim)
-    #         return r
-        
-    #     # Shorteset parse tree depth w/ root&term: ROOT - NT - T - w (minimum depth 4)
-    #     # Shorteset parse tree depth w/o root&term: NT - T (minimum depth 2)
-    #     # so we can not get any probability for the smaller depth than 2
-    #     for d in range(2, D):
-    #         if d == 2:
-    #             # NT -> T T
-    #             x = X_y_z.logsumexp(2)
-    #         else:
-    #             x = rule.new_zeros(5, batch, NT).fill_(-1e9)
-    #             zp = t[:, d-1]
-    #             # NT -> d-1 tree, d-1 tree
-    #             x[0].copy_(contract(X_Y_Z, zp, zp))
-    #             # NT -> d-1 tree, 1 tree
-    #             x[1].copy_(contract(X_Y_z, zp, bias))
-    #             # NT -> 1 tree, d-1 tree
-    #             x[2].copy_(contract(X_y_Z, bias, zp))
-    #             if d > 3:
-    #                 st = t[:, 2:d-1].clone().logsumexp(1)
-    #                 # NT -> d-1 tree, d-2~2 tree
-    #                 x[3].copy_(contract(X_Y_Z, zp, st))
-    #                 # NT -> d-2~2 tree, d-1 tree
-    #                 x[4].copy_(contract(X_Y_Z, st, zp))
-    #             x = x.logsumexp(0)
-    #         t[:, d].copy_(x)
-
-    #     if mode == 'full':
-    #         r = (root.unsqueeze(1) + t).logsumexp(2)
-    #         if withRootTerm:
-    #             r = torch.cat([r.new_zeros(batch, 2).fill_(-1e9), r], dim=1)
-    #     else:
-    #         r = root + t.logsumexp(1)
-    #         r = r.logsumexp(1)
-    #     return r
-
-
-    # @torch.enable_grad()
-    # def length_partition_function(self, rules, lens, mode=None, viterbi=False, mbr=False):
-    #     rule = rules['rule']
-    #     root = rules['root']
-
-    #     batch, NT, S, _ = rule.shape
-    #     T = S - NT
-    #     N = lens.max() + 1
-
-    #     s = rule.new_zeros(batch, N, NT).fill_(-1e9)
-    #     NTs = slice(0, NT)
-    #     Ts = slice(NT, S)
-
-    #     X_Y_Z = rule[:, :, NTs, NTs].reshape(batch, NT, NT * NT)
-    #     X_y_Z = rule[:, :, Ts, NTs].reshape(batch, NT, NT * T)
-    #     X_Y_z = rule[:, :, NTs, Ts].reshape(batch, NT, NT * T)
-    #     X_y_z = rule[:, :, Ts, Ts].reshape(batch, NT, T * T)
-
-    #     # span_indicator = rule.new_zeros(batch, N).requires_grad_(viterbi or mbr)
-
-    #     def contract(x, dim=-1):
-    #         if viterbi:
-    #             return x.max(dim)[0]
-    #         else:
-    #             return x.logsumexp(dim)
-
-    #     # nonterminals: X Y Z
-    #     # terminals: x y z
-    #     # XYZ: X->YZ  XYz: X->Yz  ...
-    #     @checkpoint
-    #     def Xyz(rule):
-    #         b_n_x = contract(rule)
-    #         return b_n_x
-
-    #     @checkpoint
-    #     def XYZ(Y, Z, rule):
-    #         w = Y.shape[1] - 1
-    #         b_n_yz = (Y[:, :-1, :, None] + Z[:, 1:, None, :]).reshape(batch, w, -1).logsumexp(1)
-    #         b_n_x = contract(b_n_yz.unsqueeze(-2) + rule)
-    #         return b_n_x
-
-    #     @checkpoint
-    #     def XYz(Y, rule):
-    #         Y = Y[:, -1, :, None]
-    #         b_n_yz = Y.expand(batch, NT, T).reshape(batch, NT * T)
-    #         b_n_x = contract(b_n_yz.unsqueeze(-2) + rule)
-    #         return b_n_x
-
-
-    #     @checkpoint
-    #     def XyZ(Z, rule):
-    #         Z = Z[:, 0, None, :]
-    #         b_n_yz = Z.expand(batch, T, NT).reshape(batch, NT * T)
-    #         b_n_x = contract(b_n_yz.unsqueeze(-2) + rule)
-    #         return b_n_x
-
-
-    #     for w in range(2, N):
-    #         if w == 2:
-    #             # s[:, w].copy_(Xyz(X_y_z) + span_indicator[:, w].unsqueeze(-1))
-    #             s[:, w].copy_(Xyz(X_y_z))
-    #             continue
-
-    #         x = rule.new_zeros(3, batch, NT).fill_(-1e9)
-
-    #         Y = s[:, 2:w].clone()
-    #         Z = s[:, 2:w].flip(1).clone()
-
-    #         if w > 3:
-    #             x[0].copy_(XYZ(Y, Z, X_Y_Z))
-
-    #         x[1].copy_(XYz(Y, X_Y_z))
-    #         x[2].copy_(XyZ(Z, X_y_Z))
-
-    #         # s[:, w].copy_(contract(x, dim=0) + span_indicator[:, w].unsqueeze(-1))
-    #         s[:, w].copy_(contract(x, dim=0))
-
-    #     if mode == 'full':
-    #         logZ = contract(s + root.unsqueeze(1))
-    #     else:
-    #         logZ = contract(s[torch.arange(batch), lens] + root)
-    #     return logZ
-
-    # def _partition_function(self, rules, lens, mode='length', depth_output=None, span=0):
-    #     if type(lens) == int:
-    #         lens = rules['root'].new_tensor([lens]).long()
-    #     if mode == 'depth':
-    #         return self.depth_partition_function(rules, lens, depth_output, span)
-    #     elif mode == 'length':
-    #         return self.length_partition_function(rules, lens, depth_output)

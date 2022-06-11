@@ -6,7 +6,7 @@ import torch.nn as nn
 from tqdm import tqdm
 from parser.helper.metric import LikelihoodMetric,  UF1, LossMetric, UAS
 
-from utils import depth_from_span
+from utils import depth_from_tree, sort_span, span_to_tree
 
 class CMD(object):
     def __call__(self, args):
@@ -135,7 +135,12 @@ class CMD(object):
         for x, y in t:
             result = model.evaluate(x, decode_type=decode_type, eval_dep=eval_dep, depth=depth)
 
-            s_depth = [depth_from_span(r) for r in result['prediction']]
+            result['prediction'] = sort_span(result['prediction'])
+            predicted_trees = [span_to_tree(r) for r in result['prediction']]
+            # for tree in predicted_trees:
+            #     for i, pos in enumerate(tree.treepositions('leaves')):
+            #         tree[pos] = y['pos'][i]
+            s_depth = [depth_from_tree(t) for t in predicted_trees]
             for d in s_depth:
                 if d in self.estimated_depth:
                     self.estimated_depth[d] += 1
@@ -155,12 +160,15 @@ class CMD(object):
 
             if eval_depth:
                 metric_f1(result['prediction'], y['gold_tree'], y['depth'], lens=True, nonterminal=True)
+                # metric_f1(result['prediction'], y['gold_tree'], y['depth'], lens=True)
             else:
                 metric_f1(result['prediction'], y['gold_tree'], lens=True, nonterminal=True)
             if left_binarization:
                 metric_f1_left(result['prediction'], y['gold_tree_left'], y['depth_left'], lens=True, nonterminal=True)
+                # metric_f1_left(result['prediction'], y['gold_tree_left'], y['depth_left'], lens=True)
             if right_binarization:
                 metric_f1_right(result['prediction'], y['gold_tree_right'], y['depth_right'], lens=True, nonterminal=True)
+                # metric_f1_right(result['prediction'], y['gold_tree_right'], y['depth_right'], lens=True)
 
             self.pf_sum = self.pf_sum + torch.sum(result['depth'], dim=0).detach().cpu()
             metric_ll(result['partition'], x['seq_len'])
