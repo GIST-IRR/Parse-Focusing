@@ -13,6 +13,8 @@ from parser.helper.util import *
 from parser.helper.data_module import DataModule
 import click
 
+import random
+
 from torch.utils.tensorboard import SummaryWriter
 
 class Evaluate(CMD):
@@ -21,7 +23,17 @@ class Evaluate(CMD):
         super(Evaluate, self).__call__(args)
         self.device = args.device
         self.args = args
-        dataset = DataModule(args)
+
+        def seed_worker(worker_id):
+            worker_seed = args.seed % 2**32
+            np.random.seed(worker_seed)
+            random.seed(worker_seed)
+
+        generator = torch.Generator()
+        generator.manual_seed(args.seed)
+        dataset = DataModule(args, generator=generator, worker_init_fn=seed_worker)
+
+        # dataset = DataModule(args)
         self.model = get_model(args.model, dataset)
 
         best_model_path = self.args.load_from_dir + "/best.pt"
@@ -32,7 +44,6 @@ class Evaluate(CMD):
         eval_depth = self.args.test.eval_depth if hasattr(self.args.test, 'eval_depth') else False
         left_binarization = self.args.test.left_binarization if hasattr(self.args.test, 'left_binarization') else False
         right_binarization = self.args.test.right_binarization if hasattr(self.args.test, 'right_binarization') else False
-        self.writer = SummaryWriter(self.args.load_from_dir)
 
         if data_split == 'train':
             test_loader = dataset.train_dataloader()
@@ -55,6 +66,7 @@ class Evaluate(CMD):
         print(likelihood)
 
         # Log - Tensorboard
+        self.writer = SummaryWriter(self.args.load_from_dir)
         for i, pf in enumerate(self.pf_sum):
             self.writer.add_scalar(f'test/{data_split}/partition_number', pf/metric_f1.n, i)
         for k, v in metric_f1.sentence_uf1_d.items():
@@ -96,6 +108,11 @@ class Evaluate(CMD):
 
         self.writer.flush()
         self.writer.close()
+
+        # Heatmap
+        self.model.save_rule_heatmap(dirname=self.args.load_from_dir, filename='eval_rule_dist.png')
+
+        # 
         
         # Log - CSV
         import csv
