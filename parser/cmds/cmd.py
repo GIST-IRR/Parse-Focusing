@@ -86,9 +86,9 @@ class CMD(object):
                 self.pf = self.pf + self.model.pf.detach().cpu().tolist() if self.model.pf.numel() != 1 else [self.model.pf.detach().cpu().tolist()]
             if self.iter != 0 and self.iter % 500 == 0:
                 self.writer.add_scalar('train/loss', self.total_loss/500, self.iter)
-                # self.writer.add_scalar('train/lambda', torch.cat(list(self.dambda.values())).mean(), self.iter)
                 self.writer.add_scalar('train/lambda', self.dambda, self.iter)
                 self.writer.add_scalar('train/length', self.total_len/500, self.iter)
+                self.writer.add_scalar('train/rule_entropy', self.model.entropy_rules(probs=True, reduce='mean'), self.iter)
                 self.total_loss = 0
                 self.total_len = 0
                 if hasattr(self.model, 'pf'):
