@@ -67,7 +67,7 @@ class PCFG_base(nn.Module):
         return self._inside(rules, terms, lens, viterbi=viterbi, mbr=mbr)
 
 
-    def _get_prediction(self, logZ, span_indicator, tag_indicator, lens, mbr=False, depth=False):
+    def _get_prediction(self, logZ, span_indicator, lens, tag_indicator=None, mbr=False, depth=False):
         batch, seq_len = span_indicator.shape[:2]
         prediction = [[] for _ in range(batch)]
         if depth:
@@ -79,7 +79,7 @@ class PCFG_base(nn.Module):
             assert logZ.requires_grad
             logZ.sum().backward()
             marginals = span_indicator.grad
-            tag_marginals = tag_indicator.grad
+            tag_marginals = tag_indicator.grad if tag_indicator is not None else None
             if mbr:
                 if depth:
                     return self._cky_zero_order_depth(marginals.detach(), lens)
@@ -96,9 +96,10 @@ class PCFG_base(nn.Module):
                     else:
                         # prediction[span[0]].append((span[1], span[2]))
                         prediction[span[0]].append((span[1], span[2], span[3]))
-                viterbi_tags = tag_marginals.nonzero().tolist()
-                for tag in viterbi_tags:
-                    prediction[tag[0]].append((tag[1], tag[1]+1, tag[2]))
+                if tag_marginals is not None:
+                    viterbi_tags = tag_marginals.nonzero().tolist()
+                    for tag in viterbi_tags:
+                        prediction[tag[0]].append((tag[1], tag[1]+1, tag[2]))
 
         return prediction
 

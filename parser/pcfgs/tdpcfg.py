@@ -76,7 +76,9 @@ class TDPCFG(PCFG_base):
         N += 1
 
         # for estimating marginals.
-        span_indicator = unary.new_zeros(batch, N, N).requires_grad_(mbr)
+        # span_indicator = unary.new_zeros(batch, N, N).requires_grad_(mbr)
+        span_indicator = unary.new_zeros(batch, N, N, NT).requires_grad_(mbr)
+        tag_indicator = unary.new_zeros(batch, N-1, T).requires_grad_(mbr)
 
         left_term = transform_left_t(unary,L_term)
         right_term = transform_right_t(unary,R_term)
@@ -96,7 +98,8 @@ class TDPCFG(PCFG_base):
             Y = stripe(left_s, n, w - 1, (0, 1))
             Z = stripe(right_s, n, w - 1, (1, w), 0)
             x = merge(Y.clone(), Z.clone())
-            x = x + span_indicator[:, torch.arange(n), w + torch.arange(n)].unsqueeze(-1)
+            # x = x + span_indicator[:, torch.arange(n), w + torch.arange(n)].unsqueeze(-1)
+            x = x + span_indicator[:, torch.arange(n), w + torch.arange(n)]
             if w + 1 < N:
                 left_x = transform_left_nt(x,L_nonterm)
                 right_x = transform_right_nt(x, R_nonterm)

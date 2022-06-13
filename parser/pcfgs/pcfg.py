@@ -99,7 +99,7 @@ class PCFG(PCFG_base):
         logZ = contract(s[torch.arange(batch), 0, lens] + root)
 
         if viterbi or mbr:
-            prediction = self._get_prediction(logZ, span_indicator, tag_indicator, lens, mbr=mbr)
+            prediction = self._get_prediction(logZ, span_indicator, lens, tag_indicator, mbr=mbr)
             return {'partition': logZ,
                     'prediction': prediction}
 

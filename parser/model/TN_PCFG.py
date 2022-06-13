@@ -5,6 +5,7 @@ from parser.modules.res import ResLayer
 
 from parser.pcfgs.td_partition_function import TDPartitionFunction
 from ..pcfgs.tdpcfg import TDPCFG
+from torch.distributions.utils import logits_to_probs
 
 class TNPCFG(PCFG_module):
     def __init__(self, args, dataset):
@@ -44,17 +45,39 @@ class TNPCFG(PCFG_module):
         self.mode = args.mode if hasattr(args, 'mode') else None
 
     @torch.no_grad()
+    def entropy_root(self, batch=False, probs=False, reduce='none'):
+        return self._entropy(self.rules['root'], batch=batch, probs=probs, reduce=reduce)
+
+    @torch.no_grad()
     def entropy_rules(self, batch=False, probs=False, reduce='none'):
         head = self.rules['head'][0]
         left = self.rules['left'][0]
         right = self.rules['right'][0]
-        NT = self.NT
-        NT_T = self.NT + self.T
-        r = self.r
-        rule = (head.view(NT, 1, 1, r) + \
-            left.view(1, NT_T, 1, r) + \
-            right.view(1, 1, NT_T, r)).logsumexp(dim=-1).unsqueeze(0)
-        return self._entropy(rule, batch=batch, reduce=reduce, probs=probs)
+
+        head = head[:, None, None, :]
+        left = left.unsqueeze(1)
+        right = right.unsqueeze(0)
+        ents = head.new_zeros(self.NT)
+        for i, h in enumerate(head):
+            t = (left + right + h).logsumexp(-1).reshape(-1)
+            ent = logits_to_probs(t) * t
+            ent = -ent.sum()
+            ents[i] = ent
+
+        if reduce == 'mean':
+            ents = ents.mean(-1)
+        elif reduce == 'sum':
+            ents = ents.sum(-1)
+
+        if probs:
+            emax = 2 * self.max_entropy(self.NT+self.T)
+            ents = (emax - ents) / emax
+
+        return ents
+
+    @torch.no_grad()
+    def entropy_terms(self, batch=False, probs=False, reduce='none'):
+        return self._entropy(self.rules['unary'], batch=batch, probs=probs, reduce=reduce)
 
     def forward(self, input, **kwargs):
         x = input['word']
