@@ -29,7 +29,10 @@ class Train(CMD):
 
         generator = torch.Generator()
         generator.manual_seed(args.seed)
+        
         dataset = DataModule(args, generator=generator, worker_init_fn=seed_worker)
+        # If you do not use generator and seed worker, model parameters are also affected (reason?)
+        # dataset = DataModule(args)
         self.idx2word = np.array(list(dataset.word_vocab.idx2word.values())) # for word_vocab
         self.model = get_model(args.model, dataset)
         self.optimizer = get_optimizer(args.optimizer, self.model)
@@ -44,6 +47,8 @@ class Train(CMD):
 
         create_save_path(args)
         log = get_logger(args)
+        if not hasattr(args, 'seed'):
+            log.info(f'seed: {torch.initial_seed()}')
         log.info("Create the model")
         log.info(f"{self.model}\n")
         total_time = timedelta()
@@ -76,14 +81,14 @@ class Train(CMD):
         self.num_batch = len(dataset.train_dataloader(max_len=train_arg.max_len))
         if hasattr(train_arg, 'total_iter'):
             train_arg.max_epoch = math.ceil(train_arg.total_iter / self.num_batch)
+            log.info(f'num of batch: {self.num_batch}, max epoch: {train_arg.max_epoch}')
         train_arg.total_iter = train_arg.max_epoch * self.num_batch
+        log.info(f'total iter: {train_arg.total_iter}')
         if hasattr(train_arg, 'dambda_warmup') and train_arg.dambda_warmup:
-            # train_arg.warmup_iter = math.ceil(train_arg.max_epoch*(train_arg.warmup_end-train_arg.warmup_start))
-            # train_arg.warmup_start = math.ceil(train_arg.max_epoch*train_arg.warmup_start)
-
             train_arg.warmup_iter = int(train_arg.total_iter * train_arg.dambda_warmup)
             train_arg.warmup_start = int(train_arg.total_iter * (train_arg.dambda_warmup - 0.1))
             train_arg.warmup_end = int(train_arg.total_iter * (train_arg.dambda_warmup + 0.1))
+            log.info(f'warmup start: {train_arg.warmup_start}, middle: {train_arg.warmup_iter}, end: {train_arg.warmup_end}')
 
         for epoch in range(start_epoch, train_arg.max_epoch + 1):
             '''

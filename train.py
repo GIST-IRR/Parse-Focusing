@@ -34,6 +34,7 @@ def train(args2):
         random.seed(args.seed)
         # Numpy
         np.random.seed(args.seed)
+        # if you turn off funcs below, model is random, loader is fixed.
         # Pytorch
         torch.manual_seed(args.seed)
         torch.backends.cudnn.deterministic = True
