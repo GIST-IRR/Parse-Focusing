@@ -65,6 +65,9 @@ class Evaluate(CMD):
         print(metric_f1)
         print(likelihood)
 
+        # Save rule distribution
+        torch.save(self.model.rules, os.path.join(self.args.load_from_dir, 'rule_dist.pt'))
+
         # Log - Tensorboard
         self.writer = SummaryWriter(self.args.load_from_dir)
         for i, pf in enumerate(self.pf_sum):
