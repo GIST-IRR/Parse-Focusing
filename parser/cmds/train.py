@@ -22,18 +22,9 @@ class Train(CMD):
         self.args = args
         self.device = args.device
 
-        def seed_worker(worker_id):
-            worker_seed = args.seed % 2**32
-            np.random.seed(worker_seed)
-            random.seed(worker_seed)
-
-        generator = torch.Generator()
-        generator.manual_seed(args.seed)
-        
-        dataset = DataModule(args, generator=generator, worker_init_fn=seed_worker)
-        # If you do not use generator and seed worker, model parameters are also affected (reason?)
-        # dataset = DataModule(args)
+        dataset = DataModule(args)
         self.idx2word = np.array(list(dataset.word_vocab.idx2word.values())) # for word_vocab
+
         self.model = get_model(args.model, dataset)
         self.optimizer = get_optimizer(args.optimizer, self.model)
 
@@ -41,9 +32,30 @@ class Train(CMD):
         if hasattr(args, 'pretrained_model'):
             with open(args.pretrained_model, 'rb') as f:
                 checkpoint = torch.load(f, map_location=self.device)
-                start_epoch = checkpoint['epoch'] + 1
-                self.model.load_state_dict(checkpoint['model'])
-                self.optimizer.load_state_dict(checkpoint['optimizer'])
+            start_epoch = checkpoint['epoch'] + 1
+            self.model.load_state_dict(checkpoint['model'])
+            self.optimizer.load_state_dict(checkpoint['optimizer'])
+            random.setstate(checkpoint['random.python'])
+            np.random.set_state(checkpoint['random.numpy'])
+
+            def seed_worker(worker_id):
+                random.setstate(checkpoint['random.python'])
+                np.random.set_state(checkpoint['random.numpy'])
+
+            worker_init_fn = seed_worker
+            generator = torch.Generator()
+            generator.set_state(checkpoint['random.torch'].cpu())
+        else:
+            def seed_worker(worker_id):
+                worker_seed = args.seed
+                np.random.seed(worker_seed)
+                random.seed(worker_seed)
+
+            worker_init_fn = seed_worker
+            generator = torch.Generator()
+            generator.manual_seed(args.seed)   
+        dataset.generator = generator
+        dataset.worker_init_fn = worker_init_fn
 
         create_save_path(args)
         log = get_logger(args)
@@ -70,13 +82,6 @@ class Train(CMD):
         left_binarization = self.args.test.left_binarization if hasattr(self.args.test, 'left_binarization') else False
         right_binarization = self.args.test.right_binarization if hasattr(self.args.test, 'right_binarization') else False
         
-        # Check total iteration
-        self.iter = 0
-        self.pf = []
-        self.partition = False
-        self.total_loss = 0
-        self.total_len = 0
-        self.dambda = 0
         # iteration setup
         self.num_batch = len(dataset.train_dataloader(max_len=train_arg.max_len))
         if hasattr(train_arg, 'total_iter'):
@@ -89,6 +94,14 @@ class Train(CMD):
             train_arg.warmup_start = int(train_arg.total_iter * (train_arg.dambda_warmup - 0.1))
             train_arg.warmup_end = int(train_arg.total_iter * (train_arg.dambda_warmup + 0.1))
             log.info(f'warmup start: {train_arg.warmup_start}, middle: {train_arg.warmup_iter}, end: {train_arg.warmup_end}')
+
+        # Check total iteration
+        self.iter = (start_epoch - 1) * self.num_batch
+        self.pf = []
+        self.partition = False
+        self.total_loss = 0
+        self.total_len = 0
+        self.dambda = 0
 
         for epoch in range(start_epoch, train_arg.max_epoch + 1):
             '''
@@ -188,7 +201,10 @@ class Train(CMD):
                 checkpoint = {
                     'epoch': epoch,
                     'model': self.model.state_dict(),
-                    'optimizer': self.optimizer.state_dict()
+                    'optimizer': self.optimizer.state_dict(),
+                    'random.python': random.getstate(),
+                    'random.numpy': np.random.get_state(),
+                    'random.torch': generator.get_state()
                 }
                 torch.save(
                    obj=checkpoint,
@@ -202,7 +218,10 @@ class Train(CMD):
             checkpoint = {
                 'epoch': epoch,
                 'model': self.model.state_dict(),
-                'optimizer': self.optimizer.state_dict()
+                'optimizer': self.optimizer.state_dict(),
+                'random.python': random.getstate(),
+                'random.numpy': np.random.get_state(),
+                'random.torch': generator.get_state()
             }
             torch.save(
                 obj=checkpoint,
