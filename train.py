@@ -11,6 +11,8 @@ from pathlib import Path
 from easydict import EasyDict as edict
 import yaml
 
+from torch_support.train_support import fix_seed, setup_log_dir
+
 import random
 import numpy as np
 import copy
@@ -24,35 +26,16 @@ def train(args2):
     args.device = f'cuda:{args.device}' if torch.cuda.is_available() else 'cpu'
     torch.cuda.set_device(args.device)
 
-    config_path = Path(args.conf  if args.conf else args2.load_from_dir + "/config.yaml")
+    config_path = Path(args.conf if args.conf else args2.load_from_dir + "/config.yaml")
     config_name = config_path.stem
     args.save_dir = args.save_dir + "/{}".format(config_name)
 
-    # Set the random seed for reproducible experiments
     if hasattr(args, 'seed'):
-        # Python
-        random.seed(args.seed)
-        # Numpy
-        np.random.seed(args.seed)
-        # if you turn off funcs below, model is random, loader is fixed.
-        # Pytorch
-        torch.manual_seed(args.seed)
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-        # CUDA
-        torch.cuda.manual_seed(args.seed)
-        torch.cuda.manual_seed_all(args.seed)
-        if torch.version.cuda >= str(10.2):
-            os.environ['CUBLAS_WORKSPACE_CONFIG']=':16:8'
-            # or
-            # os.environ['CUBLAS_WORKSPACE_CONFIG']=':4096:2'
-        else:
-            os.environ['CUDA_LAUNCH_BLOCKING']='1'
+        fix_seed(args.seed)
 
     # Auto-generation of log dir
-    log_dir = args2.conf.split('/')[-1].split('.')[0]
-    if not os.path.exists(f'log/{log_dir}'):
-        os.mkdir(f'log/{log_dir}')
+    log_dir = Path(args2.conf).stem
+    setup_log_dir(f'log/{log_dir}')
 
     try:
         command = Train()
