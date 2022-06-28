@@ -27,6 +27,9 @@ class Train(CMD):
 
         self.model = get_model(args.model, dataset)
         self.optimizer = get_optimizer(args.optimizer, self.model)
+        # self.optimizer_tmp = torch.optim.SGD(self.model.parameters(), lr=0.01)
+        self.optimizer_tmp = get_optimizer(args.optimizer, self.model)
+        self.optim_flag = False
 
         start_epoch = 1
         if hasattr(args, 'pretrained_model'):
@@ -47,7 +50,7 @@ class Train(CMD):
             generator.set_state(checkpoint['random.torch'].cpu())
         else:
             def seed_worker(worker_id):
-                worker_seed = args.seed
+                worker_seed = args.seed % 2**32
                 np.random.seed(worker_seed)
                 random.seed(worker_seed)
 
@@ -125,9 +128,9 @@ class Train(CMD):
                 self.min_len = train_arg.min_len
 
             train_loader = dataset.train_dataloader(max_len=self.max_len, min_len=self.min_len)
-            if epoch == 1:
-                self.num_batch = len(train_loader)
-                self.total_iter = self.num_batch * train_arg.max_epoch
+            # if epoch == 1:
+            self.num_batch = len(train_loader)
+            self.total_iter = self.num_batch * train_arg.max_epoch
 
             train_loader_autodevice = DataPrefetcher(train_loader, device=self.device)
             eval_loader_autodevice = DataPrefetcher(eval_loader, device=self.device)

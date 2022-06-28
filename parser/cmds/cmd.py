@@ -6,7 +6,7 @@ import torch.nn as nn
 from tqdm import tqdm
 from parser.helper.metric import LikelihoodMetric,  UF1, LossMetric, UAS
 
-from utils import depth_from_tree, sort_span, span_to_tree
+from utils import depth_from_tree, sort_span, span_to_tree, save_rule_heatmap
 
 class CMD(object):
     def __call__(self, args):
@@ -39,6 +39,20 @@ class CMD(object):
                     elif self.iter >= train_arg.warmup_start and self.iter < train_arg.warmup_end:
                         self.dambda = 1 / (1 + math.exp((-self.iter+train_arg.warmup_iter)/(self.num_batch/8)))
                     else:
+                        if not self.optim_flag:
+                            self.optimizer, self.optimizer_tmp = \
+                            self.optimizer_tmp, self.optimizer
+                            self.optim_flag = True
+                        self.dambda = 1
+                elif hasattr(train_arg, 'dambda_step') and train_arg.dambda_step:
+                    bound = train_arg.total_iter * train_arg.dambda_step
+                    if self.iter < bound:
+                        self.dambda = 0
+                    else:
+                        if not self.optim_flag:
+                            self.optimizer, self.optimizer_tmp = \
+                            self.optimizer_tmp, self.optimizer
+                            self.optim_flag = True
                         self.dambda = 1
 
                     # self.dambda = self.model.entropy_rules(probs=True, reduce='mean')
@@ -58,6 +72,7 @@ class CMD(object):
                     # self.dambda = ent + factor * (1-ent)
                 else:
                     self.dambda = 1
+
                 records = self.model.soft_backward(
                     loss, z_l, self.optimizer,
                     dambda=self.dambda,
@@ -69,6 +84,16 @@ class CMD(object):
                 loss = self.model.loss(x, partition=self.partition)
                 loss.backward()
                 records = None
+                
+            # if 'prev_rules' not in locals():
+            #     pass
+            #     # save_rule_heatmap(self.model.rules, dirname='figure', filename=f'rule_gradient_{self.iter}.png', grad=True, root=False, unary=False)
+            # else:
+            #     diff = {}
+            #     for k in self.model.rules.keys():
+            #         diff[k] = self.model.rules[k] - prev_rules[k]
+            #     save_rule_heatmap(diff, dirname='figure', filename=f'rule_diff_{self.iter}.png', root=False, unary=True)
+            # prev_rules = self.model.rules
 
             if hasattr(train_arg, 'heatmap') and train_arg.heatmap:
                 if self.iter % int(self.total_iter/10) == 0:
@@ -87,6 +112,7 @@ class CMD(object):
             if self.iter != 0 and self.iter % 500 == 0:
                 self.writer.add_scalar('train/loss', self.total_loss/500, self.iter)
                 self.writer.add_scalar('train/lambda', self.dambda, self.iter)
+                self.writer.add_scalar('train/optimizer_flag', self.optim_flag, self.iter)
                 self.writer.add_scalar('train/length', self.total_len/500, self.iter)
                 self.writer.add_scalar('train/rule_entropy', self.model.entropy_rules(probs=True, reduce='mean'), self.iter)
                 self.total_loss = 0
@@ -104,7 +130,13 @@ class CMD(object):
                         self.writer.add_histogram(f'train/{k}', v.detach().cpu(), self.iter)
                 ent = self.model.entropy_rules()
                 self.writer.add_histogram(f'train/entropy', ent.detach().cpu(), self.iter)
+                # save_rule_heatmap(self.model.rules, dirname='figure', filename=f'rule_{self.iter}.png', root=False, rule=False)
+                # diff = {}
+                # for k in self.model.rules.keys():
+                #     diff[k] = self.model.rules[k] - prev_rules[k]
+                # save_rule_heatmap(diff, dirname='figure', filename=f'rule_diff_{self.iter}.png', root=False, unary=True)
                     
+            # prev_rules = self.model.rules
             # Check total iteration
             self.iter += 1
         return
