@@ -1,5 +1,7 @@
 from nltk import Tree
 import torch
+import os
+import matplotlib.pyplot as plt
 
 def min_depth_for_len(length):
     return length.min().log2().ceil().long().item() + 1
@@ -109,3 +111,51 @@ def span_to_list(span):
             child = others[sibling_index[i]:sibling_index[i+1]]
             children.append(span_to_list(child))
     return [label] + children
+
+def save_rule_heatmap(rules, dirname='heatmap', filename='rules_prop.png', grad=False, root=True, rule=True, unary=True):
+    if grad:
+        root_data = rules['root'].grad[0].detach().cpu()
+        rule_data = rules['rule'].grad[0].detach().cpu()
+        unary_data = rules['unary'].grad[0].detach().cpu()
+    else:
+        root_data = rules['root'][0].detach().cpu()
+        rule_data = rules['rule'][0].detach().cpu()
+        unary_data = rules['unary'][0].detach().cpu()
+
+    # plt.rcParams['figure.figsize'] = (70, 50)
+    root_dfs = root_data.unsqueeze(0).numpy()
+    rule_dfs = [r.numpy() for r in rule_data]
+    unary_dfs = unary_data.numpy()
+    # min max in seed
+    if root:
+        vmin = root_data.min()
+        vmax = root_data.max()
+        fig, ax = plt.subplots(figsize=(10, 5))
+        pc = ax.pcolormesh(root_dfs, vmin=vmin, vmax=vmax)
+        fig.colorbar(pc, ax=ax)
+        path = os.path.join(dirname, f'root_{filename}')
+        plt.savefig(path, bbox_inches='tight')
+        plt.close()
+
+    # min max in local
+    if rule:
+        vmin = rule_data.min()
+        vmax = rule_data.max()
+        fig, axes = plt.subplots(nrows=5, ncols=6, figsize=(70, 50))
+        for df, ax in zip(rule_dfs, axes.flat):
+            pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
+            fig.colorbar(pc, ax=ax)
+        path = os.path.join(dirname, f'rule_{filename}')
+        plt.savefig(path, bbox_inches='tight')
+        plt.close()
+
+    # absolute min max
+    if unary:
+        vmin = unary_data.min()
+        vmax = unary_data.max()
+        fig, ax = plt.subplots(figsize=(20, 5))
+        pc = ax.pcolormesh(unary_dfs, vmin=vmin, vmax=vmax)
+        fig.colorbar(pc, ax=ax)
+        path = os.path.join(dirname, f'unary_{filename}')
+        plt.savefig(path, bbox_inches='tight')
+        plt.close()
