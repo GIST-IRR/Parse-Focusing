@@ -159,10 +159,11 @@ class NeuralPCFG(PCFG_module):
         tkl = tkl.mean()
 
         # KLD for nonterminal
-        nkl = unary.new_zeros(b, self.T, self.T)
-        for i in range(self.T):
-            u = unary[:, i:i+1, :].expand(-1, self.T, -1)
-            kl_score = F.kl_div(u, unary, log_target=True, reduction='none')
+        nkl = unary.new_zeros(b, self.NT, self.NT)
+        rr = rule.reshape(b, self.NT, -1)
+        for i in range(self.NT):
+            r = rule[:, i:i+1].reshape(b, 1, -1).expand(-1, self.NT, -1)
+            kl_score = F.kl_div(r, rr, log_target=True, reduction='none')
             kl_score = kl_score.sum(-1)
             nkl[:, i] = kl_score
         # reverse ratio of kl score
