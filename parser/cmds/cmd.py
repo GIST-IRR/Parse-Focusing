@@ -39,20 +39,20 @@ class CMD(object):
                     elif self.iter >= train_arg.warmup_start and self.iter < train_arg.warmup_end:
                         self.dambda = 1 / (1 + math.exp((-self.iter+train_arg.warmup_iter)/(self.num_batch/8)))
                     else:
-                        if not self.optim_flag:
-                            self.optimizer, self.optimizer_tmp = \
-                            self.optimizer_tmp, self.optimizer
-                            self.optim_flag = True
+                        # if not self.optim_flag:
+                        #     self.optimizer, self.optimizer_tmp = \
+                        #     self.optimizer_tmp, self.optimizer
+                        #     self.optim_flag = True
                         self.dambda = 1
                 elif hasattr(train_arg, 'dambda_step') and train_arg.dambda_step:
                     bound = train_arg.total_iter * train_arg.dambda_step
                     if self.iter < bound:
                         self.dambda = 0
                     else:
-                        if not self.optim_flag:
-                            self.optimizer, self.optimizer_tmp = \
-                            self.optimizer_tmp, self.optimizer
-                            self.optim_flag = True
+                        # if not self.optim_flag:
+                        #     self.optimizer, self.optimizer_tmp = \
+                        #     self.optimizer_tmp, self.optimizer
+                        #     self.optim_flag = True
                         self.dambda = 1
 
                     # self.dambda = self.model.entropy_rules(probs=True, reduce='mean')
@@ -73,12 +73,16 @@ class CMD(object):
                 else:
                     self.dambda = 1
 
-                records = self.model.soft_backward(
-                    loss, z_l, self.optimizer,
-                    dambda=self.dambda,
-                    target=train_arg.soft_loss_target,
-                    mode=train_arg.soft_loss_mode
-                )
+                t_loss = loss + self.dambda * z_l
+                t_loss.backward()
+                records = None
+
+                # records = self.model.soft_backward(
+                #     loss, z_l, self.optimizer,
+                #     dambda=self.dambda,
+                #     target=train_arg.soft_loss_target,
+                #     mode=train_arg.soft_loss_mode
+                # )
             else:
                 # Hard gradients
                 loss = self.model.loss(x, partition=self.partition)
@@ -106,22 +110,40 @@ class CMD(object):
             # writer
             self.total_loss += loss.item()
             self.total_len += x['seq_len'].max().double()
+            self.total_kl_term += self.model.rules['kl_term'].mean().item()
+            self.total_kl_nonterm += self.model.rules['kl_nonterm'].mean().item()
+            self.total_cos_term += self.model.rules['cos_term'].mean().item()
+            self.total_cos_nonterm += self.model.rules['cos_nonterm'].mean().item()
+            self.total_log_cos_term += self.model.rules['log_cos_term'].mean().item()
+            self.total_log_cos_nonterm += self.model.rules['log_cos_nonterm'].mean().item()
 
             if hasattr(self.model, 'pf'):
                 self.pf = self.pf + self.model.pf.detach().cpu().tolist() if self.model.pf.numel() != 1 else [self.model.pf.detach().cpu().tolist()]
             if self.iter != 0 and self.iter % 500 == 0:
                 self.writer.add_scalar('train/loss', self.total_loss/500, self.iter)
                 self.writer.add_scalar('train/lambda', self.dambda, self.iter)
-                self.writer.add_scalar('train/optimizer_flag', self.optim_flag, self.iter)
-                self.writer.add_scalar('train/length', self.total_len/500, self.iter)
+                self.writer.add_scalar('train/kl_term', self.total_kl_term/500, self.iter)
+                self.writer.add_scalar('train/kl_nonterm', self.total_kl_nonterm/500, self.iter)
+                self.writer.add_scalar('train/cos_term', self.total_cos_term/500, self.iter)
+                self.writer.add_scalar('train/cos_nonterm', self.total_cos_nonterm/500, self.iter)
+                self.writer.add_scalar('train/log_cos_term', self.total_log_cos_term/500, self.iter)
+                self.writer.add_scalar('train/log_cos_nonterm', self.total_log_cos_nonterm/500, self.iter)
+                # self.writer.add_scalar('train/optimizer_flag', self.optim_flag, self.iter)
+                # self.writer.add_scalar('train/length', self.total_len/500, self.iter)
                 self.writer.add_scalar('train/rule_entropy', self.model.entropy_rules(probs=True, reduce='mean'), self.iter)
                 self.total_loss = 0
                 self.total_len = 0
+                self.total_kl_term = 0
+                self.total_kl_nonterm = 0
+                self.total_cos_term = 0
+                self.total_cos_nonterm = 0
+                self.total_log_cos_term = 0
+                self.total_log_cos_nonterm = 0
                 if hasattr(self.model, 'pf'):
                     self.writer.add_histogram('train/partition_number', self.model.pf.detach().cpu(), self.iter)
                     self.pf = []
                 for k, v in self.model.rules.items():
-                    if k == 'kl':
+                    if k in ['kl', 'kl_term', 'kl_nonterm', 'cos_term', 'cos_nonterm', 'log_cos_term', 'log_cos_nonterm']:
                         continue
                     self.writer.add_histogram(f'train/{k}_prob', v.detach().cpu(), self.iter)
                     self.writer.add_histogram(f'train/{k}_grad', v.grad.detach().cpu(), self.iter)

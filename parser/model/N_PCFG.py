@@ -1,6 +1,7 @@
 from argparse import ArgumentError
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.distributions as dist
 from parser.modules.res import ResLayer
 
@@ -142,34 +143,112 @@ class NeuralPCFG(PCFG_module):
             return rule_prob.unsqueeze(0).expand(b, *rule_prob.shape).contiguous()
 
         root, unary, rule = roots(), terms(), rules()
+        
+        # KLD for terminal
+        tkl = unary.new_zeros(b, self.T, self.T)
+        for i in range(self.T):
+            u = unary[:, i:i+1, :].expand(-1, self.T, -1)
+            kl_score = F.kl_div(u, unary, log_target=True, reduction='none')
+            kl_score = kl_score.sum(-1)
+            tkl[:, i] = kl_score
+        # reverse ratio of kl score
+        mask = tkl.new_ones(tkl.shape[1:]).fill_diagonal_(0)
+        weight = 1 - (tkl / tkl.sum((1, 2), keepdims=True))
+        weight = (mask * weight).detach()
+        tkl = (weight * tkl).mean((1, 2))
+        tkl = tkl.mean()
+
+        # KLD for nonterminal
+        nkl = unary.new_zeros(b, self.T, self.T)
+        for i in range(self.T):
+            u = unary[:, i:i+1, :].expand(-1, self.T, -1)
+            kl_score = F.kl_div(u, unary, log_target=True, reduction='none')
+            kl_score = kl_score.sum(-1)
+            nkl[:, i] = kl_score
+        # reverse ratio of kl score
+        mask = nkl.new_ones(nkl.shape[1:]).fill_diagonal_(0)
+        weight = 1 - (nkl / nkl.sum((1, 2), keepdims=True))
+        weight = (mask * weight).detach()
+        nkl = (weight * nkl).mean((1, 2))
+        nkl = nkl.mean()
+
+        # cos sim for terminal
+        tcs = unary.new_zeros(b)
+        for i in range(self.T):
+            if i == self.T-1:
+                continue
+            u = unary[:, i:i+1].expand(-1, self.T-i-1, -1)
+            o = unary[:, i+1:self.T]
+            cosine_score = F.cosine_similarity(u.exp(), o.exp(), dim=2)
+            tcs += cosine_score.abs().sum(-1)
+        tcs = tcs / (unary.size(1)*(unary.size(1)-1)/2)
+        
+        # cos sim for nonterminal
+        ncs = rule.new_zeros(b)
+        for i in range(self.NT):
+            if i == self.NT-1:
+                continue
+            r = rule[:, i:i+1].reshape(b, 1, -1).expand(-1, self.NT-i-1, -1)
+            o = rule[:, i+1:self.NT].reshape(b, self.NT-i-1, -1)
+            cosine_score = F.cosine_similarity(r.exp(), o.exp(), dim=2)
+            ncs += cosine_score.abs().sum(-1)
+        ncs = ncs / (rule.size(1)*(rule.size(1)-1)/2)
+
+        # log cos sim for terminal
+        log_tcs = unary.new_zeros(b)
+        for i in range(self.T):
+            if i == self.T-1:
+                continue
+            u = unary[:, i:i+1].expand(-1, self.T-i-1, -1)
+            o = unary[:, i+1:self.T]
+            cosine_score = F.cosine_similarity(u, o, dim=2)
+            log_tcs += cosine_score.abs().sum(-1)
+        log_tcs = log_tcs / (unary.size(1)*(unary.size(1)-1)/2)
+        
+        # log cos sim for nonterminal
+        log_ncs = rule.new_zeros(b)
+        for i in range(self.NT):
+            if i == self.NT-1:
+                continue
+            r = rule[:, i:i+1].reshape(b, 1, -1).expand(-1, self.NT-i-1, -1)
+            o = rule[:, i+1:self.NT].reshape(b, self.NT-i-1, -1)
+            cosine_score = F.cosine_similarity(r, o, dim=2)
+            log_ncs += cosine_score.abs().sum(-1)
+        log_ncs = log_ncs / (rule.size(1)*(rule.size(1)-1)/2)
 
         # for gradient conflict by using gradients of rules
         if self.training:
             root.retain_grad()
             rule.retain_grad()
             unary.retain_grad()
-            # unary_full.retain_grad()
 
         return {'unary': unary,
                 'root': root,
                 'rule': rule,
-                'kl': torch.tensor(0, device=self.device)}
+                # 'kl': torch.tensor(0, device=self.device)
+                'kl_term': tkl,
+                'kl_nonterm': nkl,
+                'cos_term': tcs,
+                'cos_nonterm': ncs,
+                'log_cos_term': log_tcs,
+                'log_cos_nonterm': log_ncs
+                }
 
     def loss(self, input, partition=False, soft=False):
         self.rules = self.forward(input)
         terms = self.term_from_unary(input, self.rules['unary'])
 
-        # num_t = self.num_trees(input['seq_len'][0])
-        # num_t = num_t if num_t != 1 else 2
-
         result = self.pcfg(self.rules, terms, lens=input['seq_len'])
         if partition:
             self.pf = self.part(self.rules, lens=input['seq_len'], mode=self.mode)
             if soft:
-                return -result['partition'].mean(), self.pf.mean()
+                # return (-result['partition'] + self.rules['kl']).mean(), self.pf.mean()
+                return (-result['partition'] + self.rules['kl_nonterm']).mean(), self.pf.mean()
             result['partition'] = result['partition'] - self.pf
-        return -result['partition'].mean()
-        # return -(result['partition']/math.log(num_t)).mean()
+        # return -result['partition'].mean()
+        # return (-result['partition'] + self.rules['kl_term']).mean()
+        # return (-result['partition'] + self.rules['kl_term'] + self.rules['kl_nonterm']).mean()
+        return (-result['partition'] + self.rules['log_cos_nonterm']).mean()
 
     def evaluate(self, input, decode_type, depth=0, depth_mode=False, **kwargs):
         self.rules = self.forward(input)

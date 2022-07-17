@@ -28,8 +28,8 @@ class Train(CMD):
         self.model = get_model(args.model, dataset)
         self.optimizer = get_optimizer(args.optimizer, self.model)
         # self.optimizer_tmp = torch.optim.SGD(self.model.parameters(), lr=0.01)
-        self.optimizer_tmp = get_optimizer(args.optimizer, self.model)
-        self.optim_flag = False
+        # self.optimizer_tmp = get_optimizer(args.optimizer, self.model)
+        # self.optim_flag = False
 
         start_epoch = 1
         if hasattr(args, 'pretrained_model'):
@@ -104,6 +104,12 @@ class Train(CMD):
         self.partition = False
         self.total_loss = 0
         self.total_len = 0
+        self.total_kl_term = 0
+        self.total_kl_nonterm = 0
+        self.total_cos_term = 0
+        self.total_cos_nonterm = 0
+        self.total_log_cos_term = 0
+        self.total_log_cos_nonterm = 0
         self.dambda = 0
 
         for epoch in range(start_epoch, train_arg.max_epoch + 1):
