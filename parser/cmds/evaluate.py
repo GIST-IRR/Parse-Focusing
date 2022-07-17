@@ -12,6 +12,7 @@ import numpy as np
 from parser.helper.util import *
 from parser.helper.data_module import DataModule
 import click
+from utils import save_rule_heatmap
 
 import random
 
@@ -19,7 +20,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 class Evaluate(CMD):
 
-    def __call__(self, args, eval_dep=False, decode_type='mbr', data_split='test'):
+    def __call__(self, args, eval_dep=False, decode_type='mbr', data_split='test', tag='best'):
         super(Evaluate, self).__call__(args)
         self.device = args.device
         self.args = args
@@ -36,7 +37,7 @@ class Evaluate(CMD):
         # dataset = DataModule(args)
         self.model = get_model(args.model, dataset)
 
-        best_model_path = self.args.load_from_dir + "/best.pt"
+        best_model_path = self.args.load_from_dir + f"/{tag}.pt"
         checkpoint = torch.load(best_model_path, map_location=self.device)
         self.model.load_state_dict(checkpoint['model'])
         print('successfully load')
@@ -114,7 +115,7 @@ class Evaluate(CMD):
 
         # Heatmap
         self.model.save_rule_heatmap(dirname=self.args.load_from_dir, filename='eval_rule_dist.png')
-
+        save_rule_heatmap(self.model.rules, dirname=self.args.load_from_dir)
         # 
         
         # Log - CSV

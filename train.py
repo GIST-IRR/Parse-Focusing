@@ -49,8 +49,12 @@ def train(args2):
             print("log directory have been saved.")
     except Exception:
         traceback.print_exc()
-        shutil.rmtree(args.save_dir)
-        print("log directory have been deleted.")
+        command = int(input('Enter 0 to delete the repo, and enter anything else to save.'))
+        if command == 0:
+            shutil.rmtree(args.save_dir)
+            print("log directory have been deleted.")
+        else:
+            print("log directory have been saved.")
 
 def train_manager(args, event):
     event.set()

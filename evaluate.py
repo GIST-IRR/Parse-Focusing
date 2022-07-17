@@ -16,7 +16,8 @@ import numpy as np
 @click.option("--decode_type", default='mbr', help="viterbi or mbr")
 @click.option("--load_from_dir", default="")
 @click.option("--device", '-d', default='0')
-def main(eval_dep, data_split, decode_type, load_from_dir, device):
+@click.option("--tag", '-t', default='best')
+def main(eval_dep, data_split, decode_type, load_from_dir, device, tag):
     yaml_cfg = yaml.load(open(load_from_dir + "/config.yaml", 'r'))
     args = edict(yaml_cfg)
     args.device = device
@@ -46,7 +47,7 @@ def main(eval_dep, data_split, decode_type, load_from_dir, device):
             os.environ['CUDA_LAUNCH_BLOCKING']='1'
 
     command = Evaluate()
-    command(args, data_split=data_split, decode_type=decode_type, eval_dep=eval_dep)
+    command(args, data_split=data_split, decode_type=decode_type, eval_dep=eval_dep, tag=tag)
 
 
 if __name__ == '__main__':
