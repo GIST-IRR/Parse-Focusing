@@ -145,33 +145,35 @@ class NeuralPCFG(PCFG_module):
         root, unary, rule = roots(), terms(), rules()
         
         # KLD for terminal
-        tkl = unary.new_zeros(b, self.T, self.T)
-        for i in range(self.T):
-            u = unary[:, i:i+1, :].expand(-1, self.T, -1)
-            kl_score = F.kl_div(u, unary, log_target=True, reduction='none')
-            kl_score = kl_score.sum(-1)
-            tkl[:, i] = kl_score
+        # tkl = unary.new_zeros(b, self.T, self.T)
+        # for i in range(self.T):
+        #     u = unary[:, i:i+1, :].expand(-1, self.T, -1)
+        #     kl_score = F.kl_div(u, unary, log_target=True, reduction='none')
+        #     kl_score = kl_score.sum(-1)
+        #     tkl[:, i] = kl_score
+        tkl = self.kl_div(unary)
         # reverse ratio of kl score
-        mask = tkl.new_ones(tkl.shape[1:]).fill_diagonal_(0)
-        weight = 1 - (tkl / tkl.sum((1, 2), keepdims=True))
-        weight = (mask * weight).detach()
-        tkl = (weight * tkl).mean((1, 2))
-        tkl = tkl.mean()
+        # mask = tkl.new_ones(tkl.shape[1:]).fill_diagonal_(0)
+        # weight = 1 - (tkl / tkl.sum((1, 2), keepdims=True))
+        # weight = (mask * weight).detach()
+        # tkl = (weight * tkl).mean((1, 2))
+        # tkl = tkl.mean()
 
         # KLD for nonterminal
-        nkl = unary.new_zeros(b, self.NT, self.NT)
-        rr = rule.reshape(b, self.NT, -1)
-        for i in range(self.NT):
-            r = rule[:, i:i+1].reshape(b, 1, -1).expand(-1, self.NT, -1)
-            kl_score = F.kl_div(r, rr, log_target=True, reduction='none')
-            kl_score = kl_score.sum(-1)
-            nkl[:, i] = kl_score
+        # nkl = unary.new_zeros(b, self.NT, self.NT)
+        # rr = rule.reshape(b, self.NT, -1)
+        # for i in range(self.NT):
+        #     r = rule[:, i:i+1].reshape(b, 1, -1).expand(-1, self.NT, -1)
+        #     kl_score = F.kl_div(r, rr, log_target=True, reduction='none')
+        #     kl_score = kl_score.sum(-1)
+        #     nkl[:, i] = kl_score
+        nkl = self.kl_div(rule)
         # reverse ratio of kl score
-        mask = nkl.new_ones(nkl.shape[1:]).fill_diagonal_(0)
-        weight = 1 - (nkl / nkl.sum((1, 2), keepdims=True))
-        weight = (mask * weight).detach()
-        nkl = (weight * nkl).mean((1, 2))
-        nkl = nkl.mean()
+        # mask = nkl.new_ones(nkl.shape[1:]).fill_diagonal_(0)
+        # weight = 1 - (nkl / nkl.sum((1, 2), keepdims=True))
+        # weight = (mask * weight).detach()
+        # nkl = (weight * nkl).mean((1, 2))
+        # nkl = nkl.mean()
 
         # cos sim for terminal    
         tcs = self.cos_sim(unary)
@@ -208,27 +210,22 @@ class NeuralPCFG(PCFG_module):
         terms = self.term_from_unary(input, self.rules['unary'])
 
         # log cos sim for terminal
-        log_tcs = terms.new_zeros(terms.size(0))
-        for i in range(self.T):
-            if i == self.T-1:
-                continue
-            u = terms[:, :, i:i+1].expand(-1, -1, self.T-i-1)
-            o = terms[:, :, i+1:self.T]
-            cosine_score = F.cosine_similarity(u, o, dim=1)
-            log_tcs += cosine_score.abs().sum(-1)
-        log_tcs = log_tcs / (terms.size(2)*(terms.size(2)-1)/2)
+        # log_tcs = self.cos_sim(terms, log=True)
 
         result = self.pcfg(self.rules, terms, lens=input['seq_len'])
         if partition:
             self.pf = self.part(self.rules, lens=input['seq_len'], mode=self.mode)
+            log_cos_nonterm = self.cos_sim_mean(self.rules['log_cos_nonterm'])
             if soft:
-                return (-result['partition']), self.pf, self.rules['log_cos_nonterm']
+                return (-result['partition']), self.pf, log_cos_nonterm
                 # return (-result['partition'] + self.rules['kl_nonterm']).mean(), self.pf.mean()
             result['partition'] = result['partition'] - self.pf
         # return -result['partition'].mean()
         # return (-result['partition'] + self.rules['kl_term']).mean()
         # return (-result['partition'] + self.rules['kl_term'] + self.rules['kl_nonterm']).mean()
-        return (-result['partition'] + self.rules['log_cos_nonterm']).mean()
+        log_cos_nonterm = self.cos_sim_mean(self.rules['log_cos_nonterm'])
+        # return (-result['partition'] + log_cos_nonterm).mean()
+        return -result['partition'], log_cos_nonterm
 
     def evaluate(self, input, decode_type, depth=0, depth_mode=False, **kwargs):
         self.rules = self.forward(input)

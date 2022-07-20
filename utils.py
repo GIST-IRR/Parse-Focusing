@@ -112,6 +112,21 @@ def span_to_list(span):
             children.append(span_to_list(child))
     return [label] + children
 
+def tensor_to_heatmap(x, batch=True, dirname='heatmap', filename='cos_sim.png'):
+    if batch:
+        x = x.mean(0)
+    x = x.detach().cpu().numpy()
+    vmin = -1
+    vmax = 1
+    fig, ax = plt.subplots(figsize=(6, 5))
+    pc = ax.pcolormesh(x, vmin=vmin, vmax=vmax, cmap='RdBu')
+    fig.colorbar(pc, ax=ax)
+    path = os.path.join(dirname, filename)
+    plt.gca().invert_yaxis()
+    plt.savefig(path, bbox_inches='tight')
+    plt.close()
+    return fig
+
 def save_rule_heatmap(rules, dirname='heatmap', filename='rules_prop.png', grad=False, root=True, rule=True, unary=True):
     if grad:
         root_data = rules['root'].grad[0].detach().cpu()

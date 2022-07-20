@@ -6,7 +6,7 @@ import torch.nn as nn
 from tqdm import tqdm
 from parser.helper.metric import LikelihoodMetric,  UF1, LossMetric, UAS
 
-from utils import depth_from_tree, sort_span, span_to_tree, save_rule_heatmap
+from utils import depth_from_tree, sort_span, span_to_tree, save_rule_heatmap, tensor_to_heatmap
 
 class CMD(object):
     def __call__(self, args):
@@ -88,8 +88,11 @@ class CMD(object):
                 # )
             else:
                 # Hard gradients
-                loss = self.model.loss(x, partition=self.partition)
-                loss.backward()
+                loss, log_cos = self.model.loss(x, partition=self.partition)
+                t_loss = (loss + self.dambda * log_cos).mean()
+                t_loss.backward()
+                loss = loss.mean()
+                log_cos = log_cos.mean()
                 records = None
                 
             # if 'prev_rules' not in locals():
@@ -105,6 +108,8 @@ class CMD(object):
             if hasattr(train_arg, 'heatmap') and train_arg.heatmap:
                 if self.iter % int(self.total_iter/10) == 0:
                     self.model.save_rule_heatmap(dirname=heatmap_dir, filename=f'rule_dist_{self.iter}.png')
+                    if self.iter != 0:
+                        self.dambda = not self.dambda
             
             if train_arg.clip > 0:
                 nn.utils.clip_grad_norm_(self.model.parameters(),
@@ -133,6 +138,17 @@ class CMD(object):
                 self.writer.add_scalar('train/log_cos_nonterm', self.total_log_cos_nonterm/500, self.iter)
                 # self.writer.add_scalar('train/optimizer_flag', self.optim_flag, self.iter)
                 # self.writer.add_scalar('train/length', self.total_len/500, self.iter)
+                # tensor_to_heatmap(self.model.rules['kl_term'], dirname=heatmap_dir, filename=f'kl_term_{self.iter}.png')
+                # tensor_to_heatmap(self.model.rules['kl_nonterm'], dirname=heatmap_dir, filename=f'kl_nonterm_{self.iter}.png')
+                # tensor_to_heatmap(self.model.rules['cos_term'], dirname=heatmap_dir, filename=f'cos_term_{self.iter}.png')
+                # tensor_to_heatmap(self.model.rules['cos_nonterm'], dirname=heatmap_dir, filename=f'cos_nonterm_{self.iter}.png')
+                # tensor_to_heatmap(self.model.rules['log_cos_term'], dirname=heatmap_dir, filename=f'log_cos_term_{self.iter}.png')
+                # tensor_to_heatmap(self.model.rules['log_cos_nonterm'], dirname=heatmap_dir, filename=f'log_cos_nonterm_{self.iter}.png')
+                # self.writer.add_figure('train/cos_term', tensor_to_heatmap(self.model.rules['cos_term']), self.iter)
+                # self.writer.add_figure('train/cos_nonterm', tensor_to_heatmap(self.model.rules['cos_nonterm']), self.iter)
+                # self.writer.add_figure('train/log_cos_term', tensor_to_heatmap(self.model.rules['log_cos_term']), self.iter)
+                # self.writer.add_figure('train/log_cos_nonterm', tensor_to_heatmap(self.model.rules['log_cos_nonterm']), self.iter)
+
                 self.writer.add_scalar('train/rule_entropy', self.model.entropy_rules(probs=True, reduce='mean'), self.iter)
                 self.total_loss = 0
                 self.total_len = 0

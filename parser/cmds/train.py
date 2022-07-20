@@ -14,6 +14,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 import math
 import random
+from utils import tensor_to_heatmap
 
 class Train(CMD):
 
@@ -142,6 +143,15 @@ class Train(CMD):
             eval_loader_autodevice = DataPrefetcher(eval_loader, device=self.device)
             start = datetime.now()
             self.train(train_loader_autodevice)
+
+            heatmap_dir = os.path.join(self.args.save_dir, 'heatmap')
+            tensor_to_heatmap(self.model.rules['kl_term'], dirname=heatmap_dir, filename=f'kl_term_{self.iter}.png')
+            tensor_to_heatmap(self.model.rules['kl_nonterm'], dirname=heatmap_dir, filename=f'kl_nonterm_{self.iter}.png')
+            tensor_to_heatmap(self.model.rules['cos_term'], dirname=heatmap_dir, filename=f'cos_term_{self.iter}.png')
+            tensor_to_heatmap(self.model.rules['cos_nonterm'], dirname=heatmap_dir, filename=f'cos_nonterm_{self.iter}.png')
+            tensor_to_heatmap(self.model.rules['log_cos_term'], dirname=heatmap_dir, filename=f'log_cos_term_{self.iter}.png')
+            tensor_to_heatmap(self.model.rules['log_cos_nonterm'], dirname=heatmap_dir, filename=f'log_cos_nonterm_{self.iter}.png')
+
             log.info(f"Epoch {epoch} / {train_arg.max_epoch}:")
 
 
