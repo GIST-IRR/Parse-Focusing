@@ -31,7 +31,7 @@ class CMD(object):
                 and hasattr(train_arg, 'soft_loss_target') \
                 and hasattr(train_arg, 'soft_loss_mode'):
                 # Soft gradients
-                loss, z_l = self.model.loss(x, partition=self.partition, soft=True)
+                loss, z_l, log_cos = self.model.loss(x, partition=self.partition, soft=True)
                 if hasattr(train_arg, 'dambda_warmup') and train_arg.dambda_warmup:
                     # sigmoid
                     if self.iter < train_arg.warmup_start:
@@ -73,8 +73,11 @@ class CMD(object):
                 else:
                     self.dambda = 1
 
-                t_loss = loss + self.dambda * z_l
+                t_loss = (loss + self.dambda * z_l + (1-self.dambda) * log_cos).mean()
                 t_loss.backward()
+                loss = loss.mean()
+                z_l = z_l.mean()
+                log_cos = log_cos.mean()
                 records = None
 
                 # records = self.model.soft_backward(

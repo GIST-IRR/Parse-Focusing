@@ -1,6 +1,7 @@
 from argparse import ArgumentError
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.distributions as dist
 
 import math
@@ -30,6 +31,25 @@ class PCFG_module(nn.Module):
 
     def max_entropy(self, num):
         return math.log(num)
+
+    def cos_sim(self, x, log=False):
+        b, cat = x.shape[:2]
+        cs = x.new_zeros(b)
+        for i in range(cat):
+            if i == cat-1:
+                continue
+            u = x[:, i:i+1].expand(-1, cat-i-1, -1)
+            o = x[:, i+1:cat]
+            if not log:
+                u = u.exp()
+                o = o.exp()
+            cosine_score = F.cosine_similarity(u, o, dim=2)
+            cs += cosine_score.abs().sum(-1)
+        cs = cs / (cat*(cat-1)/2)
+        return cs
+
+    def js_div(self, x, y, log_target=False):
+        pass
 
     def _entropy(self, rule, batch=False, reduce='none', probs=False):
         if rule.dim() == 2:

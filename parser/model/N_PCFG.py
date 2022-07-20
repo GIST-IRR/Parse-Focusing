@@ -173,49 +173,17 @@ class NeuralPCFG(PCFG_module):
         nkl = (weight * nkl).mean((1, 2))
         nkl = nkl.mean()
 
-        # cos sim for terminal
-        tcs = unary.new_zeros(b)
-        for i in range(self.T):
-            if i == self.T-1:
-                continue
-            u = unary[:, i:i+1].expand(-1, self.T-i-1, -1)
-            o = unary[:, i+1:self.T]
-            cosine_score = F.cosine_similarity(u.exp(), o.exp(), dim=2)
-            tcs += cosine_score.abs().sum(-1)
-        tcs = tcs / (unary.size(1)*(unary.size(1)-1)/2)
+        # cos sim for terminal    
+        tcs = self.cos_sim(unary)
         
         # cos sim for nonterminal
-        ncs = rule.new_zeros(b)
-        for i in range(self.NT):
-            if i == self.NT-1:
-                continue
-            r = rule[:, i:i+1].reshape(b, 1, -1).expand(-1, self.NT-i-1, -1)
-            o = rule[:, i+1:self.NT].reshape(b, self.NT-i-1, -1)
-            cosine_score = F.cosine_similarity(r.exp(), o.exp(), dim=2)
-            ncs += cosine_score.abs().sum(-1)
-        ncs = ncs / (rule.size(1)*(rule.size(1)-1)/2)
+        ncs = self.cos_sim(rule.reshape(b, self.NT, -1))
 
         # log cos sim for terminal
-        log_tcs = unary.new_zeros(b)
-        for i in range(self.T):
-            if i == self.T-1:
-                continue
-            u = unary[:, i:i+1].expand(-1, self.T-i-1, -1)
-            o = unary[:, i+1:self.T]
-            cosine_score = F.cosine_similarity(u, o, dim=2)
-            log_tcs += cosine_score.abs().sum(-1)
-        log_tcs = log_tcs / (unary.size(1)*(unary.size(1)-1)/2)
+        log_tcs = self.cos_sim(unary, log=True)
         
         # log cos sim for nonterminal
-        log_ncs = rule.new_zeros(b)
-        for i in range(self.NT):
-            if i == self.NT-1:
-                continue
-            r = rule[:, i:i+1].reshape(b, 1, -1).expand(-1, self.NT-i-1, -1)
-            o = rule[:, i+1:self.NT].reshape(b, self.NT-i-1, -1)
-            cosine_score = F.cosine_similarity(r, o, dim=2)
-            log_ncs += cosine_score.abs().sum(-1)
-        log_ncs = log_ncs / (rule.size(1)*(rule.size(1)-1)/2)
+        log_ncs = self.cos_sim(rule.reshape(b, self.NT, -1), log=True)
 
         # for gradient conflict by using gradients of rules
         if self.training:
@@ -239,12 +207,23 @@ class NeuralPCFG(PCFG_module):
         self.rules = self.forward(input)
         terms = self.term_from_unary(input, self.rules['unary'])
 
+        # log cos sim for terminal
+        log_tcs = terms.new_zeros(terms.size(0))
+        for i in range(self.T):
+            if i == self.T-1:
+                continue
+            u = terms[:, :, i:i+1].expand(-1, -1, self.T-i-1)
+            o = terms[:, :, i+1:self.T]
+            cosine_score = F.cosine_similarity(u, o, dim=1)
+            log_tcs += cosine_score.abs().sum(-1)
+        log_tcs = log_tcs / (terms.size(2)*(terms.size(2)-1)/2)
+
         result = self.pcfg(self.rules, terms, lens=input['seq_len'])
         if partition:
             self.pf = self.part(self.rules, lens=input['seq_len'], mode=self.mode)
             if soft:
-                # return (-result['partition'] + self.rules['kl']).mean(), self.pf.mean()
-                return (-result['partition'] + self.rules['kl_nonterm']).mean(), self.pf.mean()
+                return (-result['partition']), self.pf, self.rules['log_cos_nonterm']
+                # return (-result['partition'] + self.rules['kl_nonterm']).mean(), self.pf.mean()
             result['partition'] = result['partition'] - self.pf
         # return -result['partition'].mean()
         # return (-result['partition'] + self.rules['kl_term']).mean()
