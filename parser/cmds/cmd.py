@@ -73,7 +73,8 @@ class CMD(object):
                 else:
                     self.dambda = 1
 
-                t_loss = (loss + self.dambda * z_l + (1-self.dambda) * log_cos).mean()
+                # t_loss = (loss + self.dambda * z_l + (1-self.dambda) * log_cos).mean()
+                t_loss = (loss + self.dambda * z_l).mean()
                 t_loss.backward()
                 loss = loss.mean()
                 z_l = z_l.mean()
@@ -89,11 +90,15 @@ class CMD(object):
             else:
                 # Hard gradients
                 loss, log_cos = self.model.loss(x, partition=self.partition)
-                t_loss = (loss + self.dambda * log_cos).mean()
+                # t_loss = (loss + log_cos).mean()
+                # t_loss = ((1-self.dambda) * loss + self.dambda * log_cos).mean()
+                # t_loss = (loss + self.dambda * log_cos).mean()
+                t_loss = loss.mean()
                 t_loss.backward()
                 loss = loss.mean()
                 log_cos = log_cos.mean()
                 records = None
+                # self.dambda = max(1 - 2 * self.iter / self.total_iter, 0)
                 
             # if 'prev_rules' not in locals():
             #     pass
@@ -108,8 +113,6 @@ class CMD(object):
             if hasattr(train_arg, 'heatmap') and train_arg.heatmap:
                 if self.iter % int(self.total_iter/10) == 0:
                     self.model.save_rule_heatmap(dirname=heatmap_dir, filename=f'rule_dist_{self.iter}.png')
-                    if self.iter != 0:
-                        self.dambda = not self.dambda
             
             if train_arg.clip > 0:
                 nn.utils.clip_grad_norm_(self.model.parameters(),

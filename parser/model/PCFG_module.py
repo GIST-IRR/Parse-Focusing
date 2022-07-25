@@ -74,8 +74,14 @@ class PCFG_module(nn.Module):
         x = x / (cat*(cat-1)/2)
         return x
 
+    def cos_sim_max(self, x):
+        x = x.tril(diagonal=-1)
+        x = x.flatten(start_dim=1)
+        x = x.abs()
+        return x.max(-1)[0]
+
     def js_div(self, x, y, log_target=False):
-        pass
+        raise NotImplementedError
 
     def _entropy(self, rule, batch=False, reduce='none', probs=False):
         if rule.dim() == 2:

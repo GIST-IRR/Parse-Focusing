@@ -54,6 +54,10 @@ class NeuralPCFG(PCFG_module):
         for p in self.parameters():
             if p.dim() > 1:
                 torch.nn.init.xavier_uniform_(p)
+                # torch.nn.init.orthogonal_(p)
+        # for emb in [self.term_emb, self.nonterm_emb]:
+        #     torch.nn.init.orthogonal_(emb)
+            # cos_sim = F.cosine_similarity(emb[0], emb[1], dim=0)
 
     def save_rule_heatmap(self, rules=None, dirname='heatmap', filename='rules_prop.png', abs=True, local=True, symbol=True):
         if rules is None:
@@ -130,7 +134,8 @@ class NeuralPCFG(PCFG_module):
         def roots():
             root_emb = self.root_emb
             roots = self.root_mlp(root_emb).log_softmax(-1)
-            return roots.expand(b, self.NT)
+            roots = roots.expand(b, self.NT)
+            return roots
 
         def terms():
             term_prob = self.term_mlp(self.term_emb).log_softmax(-1)
@@ -140,17 +145,40 @@ class NeuralPCFG(PCFG_module):
         def rules():
             rule_prob = self.rule_mlp(self.nonterm_emb).log_softmax(-1)
             rule_prob = rule_prob.reshape(self.NT, self.NT_T, self.NT_T)
-            return rule_prob.unsqueeze(0).expand(b, *rule_prob.shape).contiguous()
+            rule_prob = rule_prob.unsqueeze(0).expand(b, *rule_prob.shape)
+            return rule_prob
+
+        # def gram_schmidt(vv):
+        #     def projection(u, v):
+        #         proj = (v * u).sum() / (u * u).sum() * u
+        #         return proj.contiguous()
+
+        #     n, d = vv.shape
+        #     uu = vv.new_zeros(vv.shape)
+        #     uu[0].copy_(vv[0])
+        #     # uu[0].copy_(vv[0] / torch.linalg.norm(vv[0]))
+        #     for k in range(1, n):
+        #         # vk = vv[k].clone()
+        #         uk = vv[k].clone()
+        #         # uk = 0
+        #         for j in range(0, k):
+        #             uk = uk - projection(uu[j].clone(), uk)
+        #         uu[k].copy_(uk)
+        #         # uu[k].copy_(uk / torch.linalg.norm(uk))
+        #     # for k in range(nk):
+        #     #     uk = uu[:, k].clone()
+        #     #     uu[:, k] = uk / uk.norm()
+        #     return uu.contiguous()
 
         root, unary, rule = roots(), terms(), rules()
         
+        # gs_rule = gram_schmidt(rule.reshape(self.NT, -1))
+        # nm = torch.linalg.norm(gs_rule[0]) / torch.linalg.norm(gs_rule, dim=-1)
+        # gs_rule = nm.unsqueeze(1) * gs_rule
+        # gs_rule = gs_rule.reshape(self.NT, self.NT_T, self.NT_T)
+        # rule = gs_rule.expand(b, -1, -1, -1)
+
         # KLD for terminal
-        # tkl = unary.new_zeros(b, self.T, self.T)
-        # for i in range(self.T):
-        #     u = unary[:, i:i+1, :].expand(-1, self.T, -1)
-        #     kl_score = F.kl_div(u, unary, log_target=True, reduction='none')
-        #     kl_score = kl_score.sum(-1)
-        #     tkl[:, i] = kl_score
         tkl = self.kl_div(unary)
         # reverse ratio of kl score
         # mask = tkl.new_ones(tkl.shape[1:]).fill_diagonal_(0)
@@ -160,13 +188,6 @@ class NeuralPCFG(PCFG_module):
         # tkl = tkl.mean()
 
         # KLD for nonterminal
-        # nkl = unary.new_zeros(b, self.NT, self.NT)
-        # rr = rule.reshape(b, self.NT, -1)
-        # for i in range(self.NT):
-        #     r = rule[:, i:i+1].reshape(b, 1, -1).expand(-1, self.NT, -1)
-        #     kl_score = F.kl_div(r, rr, log_target=True, reduction='none')
-        #     kl_score = kl_score.sum(-1)
-        #     nkl[:, i] = kl_score
         nkl = self.kl_div(rule)
         # reverse ratio of kl score
         # mask = nkl.new_ones(nkl.shape[1:]).fill_diagonal_(0)
@@ -213,9 +234,9 @@ class NeuralPCFG(PCFG_module):
         # log_tcs = self.cos_sim(terms, log=True)
 
         result = self.pcfg(self.rules, terms, lens=input['seq_len'])
+        log_cos_nonterm = self.cos_sim_mean(self.rules['log_cos_nonterm'])
         if partition:
             self.pf = self.part(self.rules, lens=input['seq_len'], mode=self.mode)
-            log_cos_nonterm = self.cos_sim_mean(self.rules['log_cos_nonterm'])
             if soft:
                 return (-result['partition']), self.pf, log_cos_nonterm
                 # return (-result['partition'] + self.rules['kl_nonterm']).mean(), self.pf.mean()
@@ -223,7 +244,7 @@ class NeuralPCFG(PCFG_module):
         # return -result['partition'].mean()
         # return (-result['partition'] + self.rules['kl_term']).mean()
         # return (-result['partition'] + self.rules['kl_term'] + self.rules['kl_nonterm']).mean()
-        log_cos_nonterm = self.cos_sim_mean(self.rules['log_cos_nonterm'])
+        # log_cos_nonterm = self.cos_sim_mean(self.rules['log_cos_nonterm'])
         # return (-result['partition'] + log_cos_nonterm).mean()
         return -result['partition'], log_cos_nonterm
 
