@@ -111,7 +111,7 @@ class Train(CMD):
         self.total_cos_nonterm = 0
         self.total_log_cos_term = 0
         self.total_log_cos_nonterm = 0
-        self.dambda = 0
+        self.dambda = 1
 
         for epoch in range(start_epoch, train_arg.max_epoch + 1):
             '''
@@ -145,8 +145,8 @@ class Train(CMD):
             self.train(train_loader_autodevice)
 
             heatmap_dir = os.path.join(self.args.save_dir, 'heatmap')
-            tensor_to_heatmap(self.model.rules['kl_term'], dirname=heatmap_dir, filename=f'kl_term_{self.iter}.png')
-            tensor_to_heatmap(self.model.rules['kl_nonterm'], dirname=heatmap_dir, filename=f'kl_nonterm_{self.iter}.png')
+            tensor_to_heatmap(self.model.rules['kl_term'], dirname=heatmap_dir, filename=f'kl_term_{self.iter}.png', vmin=0, vmax=100)
+            tensor_to_heatmap(self.model.rules['kl_nonterm'], dirname=heatmap_dir, filename=f'kl_nonterm_{self.iter}.png', vmin=0, vmax=100)
             tensor_to_heatmap(self.model.rules['cos_term'], dirname=heatmap_dir, filename=f'cos_term_{self.iter}.png')
             tensor_to_heatmap(self.model.rules['cos_nonterm'], dirname=heatmap_dir, filename=f'cos_nonterm_{self.iter}.png')
             tensor_to_heatmap(self.model.rules['log_cos_term'], dirname=heatmap_dir, filename=f'log_cos_term_{self.iter}.png')

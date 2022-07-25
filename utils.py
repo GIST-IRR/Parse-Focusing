@@ -112,12 +112,10 @@ def span_to_list(span):
             children.append(span_to_list(child))
     return [label] + children
 
-def tensor_to_heatmap(x, batch=True, dirname='heatmap', filename='cos_sim.png'):
+def tensor_to_heatmap(x, batch=True, dirname='heatmap', filename='cos_sim.png', vmin=-1, vmax=1):
     if batch:
         x = x.mean(0)
     x = x.detach().cpu().numpy()
-    vmin = -1
-    vmax = 1
     fig, ax = plt.subplots(figsize=(6, 5))
     pc = ax.pcolormesh(x, vmin=vmin, vmax=vmax, cmap='RdBu')
     fig.colorbar(pc, ax=ax)
