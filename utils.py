@@ -172,3 +172,25 @@ def save_rule_heatmap(rules, dirname='heatmap', filename='rules_prop.png', grad=
         path = os.path.join(dirname, f'unary_{filename}')
         plt.savefig(path, bbox_inches='tight')
         plt.close()
+
+    def gram_schmidt(vv):
+            def projection(u, v):
+                proj = (v * u).sum() / (u * u).sum() * u
+                return proj.contiguous()
+
+            n, d = vv.shape
+            uu = vv.new_zeros(vv.shape)
+            uu[0].copy_(vv[0])
+            # uu[0].copy_(vv[0] / torch.linalg.norm(vv[0]))
+            for k in range(1, n):
+                # vk = vv[k].clone()
+                uk = vv[k].clone()
+                # uk = 0
+                for j in range(0, k):
+                    uk = uk - projection(uu[j].clone(), uk)
+                uu[k].copy_(uk)
+                # uu[k].copy_(uk / torch.linalg.norm(uk))
+            # for k in range(nk):
+            #     uk = uu[:, k].clone()
+            #     uu[:, k] = uk / uk.norm()
+            return uu.contiguous()

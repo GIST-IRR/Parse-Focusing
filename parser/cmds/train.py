@@ -112,6 +112,7 @@ class Train(CMD):
         self.total_log_cos_term = 0
         self.total_log_cos_nonterm = 0
         self.dambda = 1
+        self.step = 1
 
         for epoch in range(start_epoch, train_arg.max_epoch + 1):
             '''

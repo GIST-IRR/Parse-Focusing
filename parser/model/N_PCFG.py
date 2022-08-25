@@ -1,9 +1,10 @@
-from argparse import ArgumentError
+from re import M
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributions as dist
-from parser.modules.res import ResLayer
+from ..modules.res import ResLayer, ResLayerBN
 
 from parser.pcfgs.partition_function import PartitionFunction
 from ..pcfgs.pcfg import PCFG
@@ -23,14 +24,18 @@ class NeuralPCFG(PCFG_module):
 
         self.NT = args.NT
         self.T = args.T
+        self.NT_T = self.NT + self.T
         self.V = len(dataset.word_vocab)
 
         self.s_dim = args.s_dim
 
+        # embedding vectors for symbols
         self.term_emb = nn.Parameter(torch.randn(self.T, self.s_dim))
         self.nonterm_emb = nn.Parameter(torch.randn(self.NT, self.s_dim))
         self.root_emb = nn.Parameter(torch.randn(1, self.s_dim))
 
+        # Original
+        # Term FCN
         self.term_mlp = nn.Sequential(nn.Linear(self.s_dim, self.s_dim),
                                       ResLayer(self.s_dim, self.s_dim),
                                       ResLayer(self.s_dim, self.s_dim),
@@ -41,8 +46,9 @@ class NeuralPCFG(PCFG_module):
                                       ResLayer(self.s_dim, self.s_dim),
                                       nn.Linear(self.s_dim, self.NT))
 
-        self.NT_T = self.NT + self.T
+        # Rule FCN   
         self.rule_mlp = nn.Linear(self.s_dim, (self.NT_T) ** 2)
+
         # Partition function
         self.mode = args.mode if hasattr(args, 'mode') else None
 
@@ -54,10 +60,6 @@ class NeuralPCFG(PCFG_module):
         for p in self.parameters():
             if p.dim() > 1:
                 torch.nn.init.xavier_uniform_(p)
-                # torch.nn.init.orthogonal_(p)
-        # for emb in [self.term_emb, self.nonterm_emb]:
-        #     torch.nn.init.orthogonal_(emb)
-            # cos_sim = F.cosine_similarity(emb[0], emb[1], dim=0)
 
     def save_rule_heatmap(self, rules=None, dirname='heatmap', filename='rules_prop.png', abs=True, local=True, symbol=True):
         if rules is None:
@@ -140,6 +142,7 @@ class NeuralPCFG(PCFG_module):
         def terms():
             term_prob = self.term_mlp(self.term_emb).log_softmax(-1)
             term_prob = term_prob.unsqueeze(0).expand(b, self.T, self.V)
+            term_prob = self.term_from_unary(input, term_prob)
             return term_prob
 
         def rules():
@@ -148,35 +151,7 @@ class NeuralPCFG(PCFG_module):
             rule_prob = rule_prob.unsqueeze(0).expand(b, *rule_prob.shape)
             return rule_prob
 
-        # def gram_schmidt(vv):
-        #     def projection(u, v):
-        #         proj = (v * u).sum() / (u * u).sum() * u
-        #         return proj.contiguous()
-
-        #     n, d = vv.shape
-        #     uu = vv.new_zeros(vv.shape)
-        #     uu[0].copy_(vv[0])
-        #     # uu[0].copy_(vv[0] / torch.linalg.norm(vv[0]))
-        #     for k in range(1, n):
-        #         # vk = vv[k].clone()
-        #         uk = vv[k].clone()
-        #         # uk = 0
-        #         for j in range(0, k):
-        #             uk = uk - projection(uu[j].clone(), uk)
-        #         uu[k].copy_(uk)
-        #         # uu[k].copy_(uk / torch.linalg.norm(uk))
-        #     # for k in range(nk):
-        #     #     uk = uu[:, k].clone()
-        #     #     uu[:, k] = uk / uk.norm()
-        #     return uu.contiguous()
-
         root, unary, rule = roots(), terms(), rules()
-        
-        # gs_rule = gram_schmidt(rule.reshape(self.NT, -1))
-        # nm = torch.linalg.norm(gs_rule[0]) / torch.linalg.norm(gs_rule, dim=-1)
-        # gs_rule = nm.unsqueeze(1) * gs_rule
-        # gs_rule = gs_rule.reshape(self.NT, self.NT_T, self.NT_T)
-        # rule = gs_rule.expand(b, -1, -1, -1)
 
         # KLD for terminal
         tkl = self.kl_div(unary)
@@ -227,35 +202,36 @@ class NeuralPCFG(PCFG_module):
                 }
 
     def loss(self, input, partition=False, soft=False):
+        b = input['word'].shape[0]
+        # Calculate rule distributions
         self.rules = self.forward(input)
-        terms = self.term_from_unary(input, self.rules['unary'])
+        # terms = self.term_from_unary(input, self.rules['unary'])
 
-        # log cos sim for terminal
-        # log_tcs = self.cos_sim(terms, log=True)
+        # Calculate inside algorithm
+        # result = self.pcfg(self.rules, terms, lens=input['seq_len'])
+        result = self.pcfg(self.rules, self.rules['unary'], lens=input['seq_len'])
 
-        result = self.pcfg(self.rules, terms, lens=input['seq_len'])
-        log_cos_nonterm = self.cos_sim_mean(self.rules['log_cos_nonterm'])
+        # log_cos_term = self.cos_sim_max(self.rules['log_cos_term'])
+        # log_cos_nonterm = self.cos_sim_max(self.rules['log_cos_nonterm'])
+
         if partition:
             self.pf = self.part(self.rules, lens=input['seq_len'], mode=self.mode)
             if soft:
-                return (-result['partition']), self.pf, log_cos_nonterm
-                # return (-result['partition'] + self.rules['kl_nonterm']).mean(), self.pf.mean()
+                return (-result['partition']), self.pf
             result['partition'] = result['partition'] - self.pf
-        # return -result['partition'].mean()
-        # return (-result['partition'] + self.rules['kl_term']).mean()
-        # return (-result['partition'] + self.rules['kl_term'] + self.rules['kl_nonterm']).mean()
-        # log_cos_nonterm = self.cos_sim_mean(self.rules['log_cos_nonterm'])
-        # return (-result['partition'] + log_cos_nonterm).mean()
-        return -result['partition'], log_cos_nonterm
+
+        return -result['partition']
 
     def evaluate(self, input, decode_type, depth=0, depth_mode=False, **kwargs):
         self.rules = self.forward(input)
-        terms = self.term_from_unary(input, self.rules['unary'])
+        # terms = self.term_from_unary(input, self.rules['unary'])
 
         if decode_type == 'viterbi':
-            result = self.pcfg(self.rules, terms, lens=input['seq_len'], viterbi=True, mbr=False)
+            # result = self.pcfg(self.rules, terms, lens=input['seq_len'], viterbi=True, mbr=False)
+            result = self.pcfg(self.rules, self.rules['unary'], lens=input['seq_len'], viterbi=True, mbr=False)
         elif decode_type == 'mbr':
-            result = self.pcfg(self.rules, terms, lens=input['seq_len'], viterbi=False, mbr=True)
+            # result = self.pcfg(self.rules, terms, lens=input['seq_len'], viterbi=False, mbr=True)
+            result = self.pcfg(self.rules, self.rules['unary'], lens=input['seq_len'], viterbi=False, mbr=True)
         else:
             raise NotImplementedError
 

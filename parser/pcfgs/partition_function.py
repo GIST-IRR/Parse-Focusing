@@ -186,7 +186,8 @@ class PartitionFunction(nn.Module):
             b_n_x = contract(b_n_yz + rule)
             return b_n_x
 
-        y_z = term.logsumexp(-1)
+        # y_z = term.logsumexp(-1)
+        y_z = term.logsumexp(1)
         for w in range(2, N):
             if w == 2:
                 s[:, w].copy_(Xyz(X_y_z, y_z))

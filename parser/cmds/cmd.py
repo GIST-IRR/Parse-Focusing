@@ -31,7 +31,8 @@ class CMD(object):
                 and hasattr(train_arg, 'soft_loss_target') \
                 and hasattr(train_arg, 'soft_loss_mode'):
                 # Soft gradients
-                loss, z_l, log_cos = self.model.loss(x, partition=self.partition, soft=True)
+                loss, z_l = self.model.loss(x, partition=self.partition, soft=True)
+                # loss, z_l, log_cos = self.model.loss(x, partition=self.partition, soft=True)
                 if hasattr(train_arg, 'dambda_warmup') and train_arg.dambda_warmup:
                     # sigmoid
                     if self.iter < train_arg.warmup_start:
@@ -78,7 +79,7 @@ class CMD(object):
                 t_loss.backward()
                 loss = loss.mean()
                 z_l = z_l.mean()
-                log_cos = log_cos.mean()
+                # log_cos = log_cos.mean()
                 records = None
 
                 # records = self.model.soft_backward(
@@ -89,14 +90,37 @@ class CMD(object):
                 # )
             else:
                 # Hard gradients
-                loss, log_cos = self.model.loss(x, partition=self.partition)
-                # t_loss = (loss + log_cos).mean()
+                loss = self.model.loss(x, partition=self.partition)
+                # loss, log_nonterm, log_term = self.model.loss(x, partition=self.partition)
+                # loss, log_nonterm, log_term, cos_nonterm, cos_term = self.model.loss(x, partition=self.partition)
+                t_loss = loss.mean()
+                # t_loss = (loss + log_nonterm).mean()
                 # t_loss = ((1-self.dambda) * loss + self.dambda * log_cos).mean()
                 # t_loss = (loss + self.dambda * log_cos).mean()
-                t_loss = loss.mean()
+                # t_loss = (loss + log_nonterm + log_term).mean()
+                # t_loss = (loss + self.dambda * log_nonterm + self.dambda * log_term).mean()
+                # t_loss = ((1-self.dambda)*loss + self.dambda * log_nonterm + self.dambda * log_term).mean()
+
+                # # Cos sim warmup
+                # if self.iter > int(self.total_iter/10):
+                #     # t_loss = loss.mean()
+                #     t_loss = (loss + self.dambda*(log_nonterm + log_term)).mean()
+                #     # t_loss = (loss + self.dambda*(log_nonterm + log_term + cos_nonterm + cos_term)).mean()
+                #     self.dambda -= 3 / self.total_iter
+                #     self.dambda = max(self.dambda, 0)
+                # else:
+                #     t_loss = (log_nonterm + log_term).mean()
+
+                # # Gram-Schmidt process
+                # t_loss = log_nonterm[:, self.step, :self.step].mean(-1).mean()
+
+                # if t_loss < 1e-1:
+                #     self.step += 1
+
                 t_loss.backward()
                 loss = loss.mean()
-                log_cos = log_cos.mean()
+                log_nonterm = log_nonterm.mean()
+                log_term = log_term.mean()
                 records = None
                 # self.dambda = max(1 - 2 * self.iter / self.total_iter, 0)
                 
@@ -168,7 +192,8 @@ class CMD(object):
                     if k in ['kl', 'kl_term', 'kl_nonterm', 'cos_term', 'cos_nonterm', 'log_cos_term', 'log_cos_nonterm']:
                         continue
                     self.writer.add_histogram(f'train/{k}_prob', v.detach().cpu(), self.iter)
-                    self.writer.add_histogram(f'train/{k}_grad', v.grad.detach().cpu(), self.iter)
+                    if v.grad is not None:
+                        self.writer.add_histogram(f'train/{k}_grad', v.grad.detach().cpu(), self.iter)
                 if records is not None:
                     for k, v in records.items():
                         self.writer.add_histogram(f'train/{k}', v.detach().cpu(), self.iter)

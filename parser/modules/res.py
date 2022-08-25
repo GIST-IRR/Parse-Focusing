@@ -13,3 +13,17 @@ class ResLayer(nn.Module):
     def forward(self, x):
         return self.linear(x) + x
 
+class ResLayerBN(nn.Module):
+    def __init__(self, in_dim, out_dim) -> None:
+        super().__init__()
+        self.linear = nn.Sequential(
+            nn.Linear(in_dim, out_dim),
+            nn.BatchNorm1d(out_dim),
+            nn.ReLU(),
+            nn.Linear(out_dim, out_dim),
+            nn.BatchNorm1d(out_dim)
+        )
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        return self.relu(self.linear(x) + x)
