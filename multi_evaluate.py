@@ -24,7 +24,7 @@ def multi_evaluate(args):
             cfg.device = f'cuda:{args.device}' if torch.cuda.is_available() else 'cpu'
 
             command = Evaluate()
-            command(cfg, decode_type=args.decode_type, eval_dep=args.eval_dep)
+            command(cfg, decode_type=args.decode_type, eval_dep=args.eval_dep, data_split=args.data_split, tag=args.tag)
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser()
@@ -32,6 +32,8 @@ if __name__=="__main__":
     parser.add_argument('--load_from_dir', '-d', required=True, default='log')
     parser.add_argument('--decode_type', default='mbr')
     parser.add_argument('--device', default='0')
+    parser.add_argument('--tag', default='best')
+    parser.add_argument('--data_split', default='test')
     args = parser.parse_args()
     
     multi_evaluate(args)

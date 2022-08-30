@@ -15,6 +15,7 @@ import click
 from utils import save_rule_heatmap
 
 import random
+from pathlib import Path
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -128,7 +129,9 @@ class Evaluate(CMD):
                 for label, recall in metric_f1.label_recall.items():
                     writer.writerow([label, recall])
 
-        log_file = os.path.join(os.path.dirname(args.load_from_dir), 'test.csv')
+        # log_file = os.path.join(os.path.dirname(args.load_from_dir), 'test.csv')
+        log_dir = Path(args.load_from_dir).parent
+        log_file = log_dir / (str(log_dir.name) + '.csv')
         with open(log_file, 'a', newline='') as f:
             writer = csv.writer(f)
             writer.writerow([
