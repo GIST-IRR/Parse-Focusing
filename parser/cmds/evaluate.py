@@ -16,6 +16,7 @@ from utils import save_rule_heatmap
 
 import random
 from pathlib import Path
+import pickle
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -34,6 +35,7 @@ class Evaluate(CMD):
         generator = torch.Generator()
         generator.manual_seed(args.seed)
         dataset = DataModule(args, generator=generator, worker_init_fn=seed_worker)
+        self.vocab = dataset.word_vocab
 
         # dataset = DataModule(args)
         self.model = get_model(args.model, dataset)
@@ -117,7 +119,6 @@ class Evaluate(CMD):
         # Heatmap
         self.model.save_rule_heatmap(dirname=self.args.load_from_dir, filename='eval_rule_dist.png')
         save_rule_heatmap(self.model.rules, dirname=self.args.load_from_dir)
-        # 
         
         # Log - CSV
         import csv
@@ -138,3 +139,12 @@ class Evaluate(CMD):
                 args.load_from_dir, metric_f1.sentence_uf1, metric_f1.corpus_uf1,
                 likelihood.avg_likelihood.item(), likelihood.perplexity.item()
             ])
+
+        tree_dir = Path(args.load_from_dir)
+        tree_file = tree_dir / 'parse_tree.pickle'
+        tree_obj = {
+            'vocab': self.vocab,
+            'trees': self.parse_trees
+        }
+        with tree_file.open('wb') as f:
+            pickle.dump(tree_obj, f)
