@@ -30,31 +30,34 @@ class CMD(object):
             if self.partition \
                 and hasattr(train_arg, 'soft_loss_target') \
                 and hasattr(train_arg, 'soft_loss_mode'):
-                # Soft gradients
-                loss, z_l = self.model.loss(x, partition=self.partition, soft=True)
-                # loss, z_l, log_cos = self.model.loss(x, partition=self.partition, soft=True)
+
                 if hasattr(train_arg, 'dambda_warmup') and train_arg.dambda_warmup:
                     # sigmoid
                     if self.iter < train_arg.warmup_start:
                         self.dambda = 0
+                        # self.dambda = 1
                     elif self.iter >= train_arg.warmup_start and self.iter < train_arg.warmup_end:
                         self.dambda = 1 / (1 + math.exp((-self.iter+train_arg.warmup_iter)/(self.num_batch/8)))
+                        # self.dambda = 1 - self.dambda
                     else:
                         # if not self.optim_flag:
                         #     self.optimizer, self.optimizer_tmp = \
                         #     self.optimizer_tmp, self.optimizer
                         #     self.optim_flag = True
                         self.dambda = 1
+                        # self.dambda = 0
                 elif hasattr(train_arg, 'dambda_step') and train_arg.dambda_step:
                     bound = train_arg.total_iter * train_arg.dambda_step
                     if self.iter < bound:
                         self.dambda = 0
+                        # self.dambda = 1
                     else:
                         # if not self.optim_flag:
                         #     self.optimizer, self.optimizer_tmp = \
                         #     self.optimizer_tmp, self.optimizer
                         #     self.optim_flag = True
                         self.dambda = 1
+                        # self.dambda = 0
 
                     # self.dambda = self.model.entropy_rules(probs=True, reduce='mean')
 
@@ -73,12 +76,31 @@ class CMD(object):
                     # self.dambda = ent + factor * (1-ent)
                 else:
                     self.dambda = 1
+                    # self.dambda = 0
+
+                # Soft gradients
+                if self.dambda > 0:
+                    loss, z_l = self.model.loss(x, partition=self.partition, soft=True)
+                else:
+                    loss = self.model.loss(x)
+                    z_l = None
+                # loss, z_l, log_cos = self.model.loss(x, partition=self.partition, soft=True)
 
                 # t_loss = (loss + self.dambda * z_l + (1-self.dambda) * log_cos).mean()
-                t_loss = (loss + self.dambda * z_l).mean()
+                if z_l is not None:
+                    t_loss = (loss + self.dambda * z_l).mean()
+                else:
+                    t_loss = loss.mean()
                 t_loss.backward()
+
+                # Masking
+                # b, n = x['word'].shape
+                # indices = x['word'][..., None].expand(-1, -1, self.model.T).permute(0, 2, 1)
+                # mask = torch.zeros(b, self.model.T, self.model.V).scatter_(2, indices, 1.)
+
                 loss = loss.mean()
-                z_l = z_l.mean()
+                if z_l is not None:
+                    z_l = z_l.mean()
                 # log_cos = log_cos.mean()
                 records = None
 
@@ -119,8 +141,8 @@ class CMD(object):
 
                 t_loss.backward()
                 loss = loss.mean()
-                log_nonterm = log_nonterm.mean()
-                log_term = log_term.mean()
+                # log_nonterm = log_nonterm.mean()
+                # log_term = log_term.mean()
                 records = None
                 # self.dambda = max(1 - 2 * self.iter / self.total_iter, 0)
                 
@@ -233,14 +255,20 @@ class CMD(object):
         self.pf_sum = torch.zeros(depth + 1)
         self.estimated_depth = {}
         self.estimated_depth_by_length = {}
+        self.parse_trees = []
         for x, y in t:
             result = model.evaluate(x, decode_type=decode_type, eval_dep=eval_dep, depth=depth)
 
             result['prediction'] = sort_span(result['prediction'])
-            predicted_trees = [span_to_tree(r) for r in result['prediction']]
+            self.parse_trees += [{
+                'word': x['word'][i].tolist(),
+                'gold_tree': y['gold_tree'][i],
+                'pred_tree': result['prediction'][i]
+            } for i in range(x['word'].shape[0])]
             # for tree in predicted_trees:
             #     for i, pos in enumerate(tree.treepositions('leaves')):
             #         tree[pos] = y['pos'][i]
+            predicted_trees = [span_to_tree(r) for r in result['prediction']]
             s_depth = [depth_from_tree(t) for t in predicted_trees]
             for d in s_depth:
                 if d in self.estimated_depth:

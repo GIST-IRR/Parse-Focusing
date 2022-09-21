@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributions as dist
+
+from parser.modules.attentions import ScaledDotProductAttention
 from ..modules.res import ResLayer, ResLayerBN
 
 from parser.pcfgs.partition_function import PartitionFunction
@@ -13,6 +15,7 @@ from .PCFG_module import PCFG_module
 import matplotlib.pyplot as plt
 import math
 import os
+
 
 class NeuralPCFG(PCFG_module):
     def __init__(self, args, dataset):
@@ -36,35 +39,57 @@ class NeuralPCFG(PCFG_module):
 
         # Original
         # Term FCN
-        self.term_mlp = nn.Sequential(nn.Linear(self.s_dim, self.s_dim),
-                                      ResLayer(self.s_dim, self.s_dim),
-                                      ResLayer(self.s_dim, self.s_dim),
-                                      nn.Linear(self.s_dim, self.V))
+        self.term_mlp = nn.Sequential(
+            nn.Linear(self.s_dim, self.s_dim),
+            ResLayer(self.s_dim, self.s_dim),
+            ResLayer(self.s_dim, self.s_dim),
+            nn.Linear(self.s_dim, self.V),
+        )
+        # self.term_mlp = nn.Sequential(nn.Linear(self.s_dim, self.s_dim),
+        #                               ResLayer(self.s_dim, self.s_dim),
+        #                               ResLayer(self.s_dim, self.s_dim))
+        # self.term_mlp2 = nn.Linear(self.s_dim, self.V)
 
-        self.root_mlp = nn.Sequential(nn.Linear(self.s_dim, self.s_dim),
-                                      ResLayer(self.s_dim, self.s_dim),
-                                      ResLayer(self.s_dim, self.s_dim),
-                                      nn.Linear(self.s_dim, self.NT))
+        self.root_mlp = nn.Sequential(
+            nn.Linear(self.s_dim, self.s_dim),
+            ResLayer(self.s_dim, self.s_dim),
+            ResLayer(self.s_dim, self.s_dim),
+            nn.Linear(self.s_dim, self.NT),
+        )
 
-        # Rule FCN   
+        # Rule FCN
         self.rule_mlp = nn.Linear(self.s_dim, (self.NT_T) ** 2)
 
         # Partition function
-        self.mode = args.mode if hasattr(args, 'mode') else None
+        self.mode = args.mode if hasattr(args, "mode") else None
+
+        # Attention
+        # self.word_encoder = nn.Embedding(self.V, self.s_dim)
+        # self.w_q = nn.Linear(self.s_dim, self.s_dim)
+        # self.w_k = nn.Linear(self.s_dim, self.s_dim)
+        # self.w_v = nn.Linear(self.s_dim, self.s_dim)
+        # self.attn = ScaledDotProductAttention()
 
         # I find this is important for neural/compound PCFG. if do not use this initialization, the performance would get much worser.
         self._initialize()
-
 
     def _initialize(self):
         for p in self.parameters():
             if p.dim() > 1:
                 torch.nn.init.xavier_uniform_(p)
 
-    def save_rule_heatmap(self, rules=None, dirname='heatmap', filename='rules_prop.png', abs=True, local=True, symbol=True):
+    def save_rule_heatmap(
+        self,
+        rules=None,
+        dirname="heatmap",
+        filename="rules_prop.png",
+        abs=True,
+        local=True,
+        symbol=True,
+    ):
         if rules is None:
-            rules = self.rules['rule'][0]
-        plt.rcParams['figure.figsize'] = (70, 50)
+            rules = self.rules["rule"][0]
+        plt.rcParams["figure.figsize"] = (70, 50)
         dfs = [r.clone().detach().cpu().numpy() for r in rules]
         # min max in seed
         if local:
@@ -74,8 +99,8 @@ class NeuralPCFG(PCFG_module):
             for df, ax in zip(dfs, axes.flat):
                 pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
                 fig.colorbar(pc, ax=ax)
-            path = os.path.join(dirname, f'local_{filename}')
-            plt.savefig(path, bbox_inches='tight')
+            path = os.path.join(dirname, f"local_{filename}")
+            plt.savefig(path, bbox_inches="tight")
             plt.close()
 
         # min max in local
@@ -86,8 +111,8 @@ class NeuralPCFG(PCFG_module):
                 vmax = df.max()
                 pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
                 fig.colorbar(pc, ax=ax)
-            path = os.path.join(dirname, f'symbol_{filename}')
-            plt.savefig(path, bbox_inches='tight')
+            path = os.path.join(dirname, f"symbol_{filename}")
+            plt.savefig(path, bbox_inches="tight")
             plt.close()
 
         # absolute min max
@@ -98,39 +123,54 @@ class NeuralPCFG(PCFG_module):
             for df, ax in zip(dfs, axes.flat):
                 pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
                 fig.colorbar(pc, ax=ax)
-            path = os.path.join(dirname, f'global_{filename}')
-            plt.savefig(path, bbox_inches='tight')
+            path = os.path.join(dirname, f"global_{filename}")
+            plt.savefig(path, bbox_inches="tight")
             plt.close()
 
-    
-    def entropy_root(self, batch=False, probs=False, reduce='none'):
-        return self._entropy(self.rules['root'], batch=batch, probs=probs, reduce=reduce)
+    def entropy_root(self, batch=False, probs=False, reduce="none"):
+        return self._entropy(
+            self.rules["root"], batch=batch, probs=probs, reduce=reduce
+        )
 
-    def entropy_rules(self, batch=False, probs=False, reduce='none'):
-        return self._entropy(self.rules['rule'], batch=batch, probs=probs, reduce=reduce)
+    def entropy_rules(self, batch=False, probs=False, reduce="none"):
+        return self._entropy(
+            self.rules["rule"], batch=batch, probs=probs, reduce=reduce
+        )
 
-    def entropy_terms(self, batch=False, probs=False, reduce='none'):
-        return self._entropy(self.rules['unary'], batch=batch, probs=probs, reduce=reduce)
+    def entropy_terms(self, batch=False, probs=False, reduce="none"):
+        return self._entropy(
+            self.rules["unary"], batch=batch, probs=probs, reduce=reduce
+        )
 
-    def get_entropy(self, batch=False, probs=False, reduce='mean'):
+    def get_entropy(self, batch=False, probs=False, reduce="mean"):
         r_ent = self.entropy_root(batch=batch, probs=probs, reduce=reduce)
         n_ent = self.entropy_rules(batch=batch, probs=probs, reduce=reduce)
         t_ent = self.entropy_terms(batch=batch, probs=probs, reduce=reduce)
-        
+
         # ent_prob = torch.cat([r_ent, n_ent, t_ent])
         # ent_prob = ent_prob.mean()
-        if reduce == 'none':
-            ent_prob = {
-                'root': r_ent,
-                'rule': n_ent,
-                'unary': t_ent
-            }
-        elif reduce == 'mean':
+        if reduce == "none":
+            ent_prob = {"root": r_ent, "rule": n_ent, "unary": t_ent}
+        elif reduce == "mean":
             ent_prob = torch.cat([r_ent, n_ent, t_ent]).mean()
         return ent_prob
 
+    def sentence_vectorizer(sent, model):
+        sent_vec = []
+        numw = 0
+        for w in sent:
+            try:
+                if numw == 0:
+                    sent_vec = model.wv[w]
+                else:
+                    sent_vec = np.add(sent_vec, model.wv[w])
+                numw += 1
+            except:
+                pass
+        return np.asarray(sent_vec) / numw
+
     def forward(self, input):
-        x = input['word']
+        x = input["word"]
         b, n = x.shape[:2]
 
         def roots():
@@ -142,7 +182,20 @@ class NeuralPCFG(PCFG_module):
         def terms():
             term_prob = self.term_mlp(self.term_emb).log_softmax(-1)
             term_prob = term_prob.unsqueeze(0).expand(b, self.T, self.V)
-            term_prob = self.term_from_unary(input, term_prob)
+            # term_prob = self.term_from_unary(input, term_prob)
+
+            # kmeans distribution
+            # term_emb = self.term_emb / torch.linalg.norm(self.term_emb, dim=-1, keepdim=True)
+            # word_emb = self.word_emb / torch.linalg.norm(self.word_emb, dim=-1, keepdim=True)
+            # term_prob = torch.matmul(term_emb, word_emb.T) - 1
+            # term_prob = term_prob.log_softmax(-1)
+            # term_prob = term_prob.unsqueeze(0).expand(b, self.T, self.V)
+
+            # word2vec distribution
+            # term_prob = self.term_mlp(self.term_emb)
+            # term_prob = self.term_mlp2(term_prob)
+            # term_prob = term_prob.log_softmax(-1)
+            # term_prob = term_prob.unsqueeze(0).expand(b, self.T, self.V)
             return term_prob
 
         def rules():
@@ -155,31 +208,19 @@ class NeuralPCFG(PCFG_module):
 
         # KLD for terminal
         tkl = self.kl_div(unary)
-        # reverse ratio of kl score
-        # mask = tkl.new_ones(tkl.shape[1:]).fill_diagonal_(0)
-        # weight = 1 - (tkl / tkl.sum((1, 2), keepdims=True))
-        # weight = (mask * weight).detach()
-        # tkl = (weight * tkl).mean((1, 2))
-        # tkl = tkl.mean()
 
         # KLD for nonterminal
         nkl = self.kl_div(rule)
-        # reverse ratio of kl score
-        # mask = nkl.new_ones(nkl.shape[1:]).fill_diagonal_(0)
-        # weight = 1 - (nkl / nkl.sum((1, 2), keepdims=True))
-        # weight = (mask * weight).detach()
-        # nkl = (weight * nkl).mean((1, 2))
-        # nkl = nkl.mean()
 
-        # cos sim for terminal    
+        # cos sim for terminal
         tcs = self.cos_sim(unary)
-        
+
         # cos sim for nonterminal
         ncs = self.cos_sim(rule.reshape(b, self.NT, -1))
 
         # log cos sim for terminal
         log_tcs = self.cos_sim(unary, log=True)
-        
+
         # log cos sim for nonterminal
         log_ncs = self.cos_sim(rule.reshape(b, self.NT, -1), log=True)
 
@@ -188,55 +229,115 @@ class NeuralPCFG(PCFG_module):
             root.retain_grad()
             rule.retain_grad()
             unary.retain_grad()
+            # Masking backward hook
+            # def masking(grad):
+            #     b, n = x.shape
+            #     indices = x[..., None].expand(-1, -1, self.T).permute(0, 2, 1)
+            #     mask = indices.new_zeros(b, self.T, self.V).scatter_(2, indices, 1.)
+            #     return mask * grad
 
-        return {'unary': unary,
-                'root': root,
-                'rule': rule,
-                # 'kl': torch.tensor(0, device=self.device)
-                'kl_term': tkl,
-                'kl_nonterm': nkl,
-                'cos_term': tcs,
-                'cos_nonterm': ncs,
-                'log_cos_term': log_tcs,
-                'log_cos_nonterm': log_ncs
-                }
+            # unary.register_hook(masking)
+
+        return {
+            "unary": unary,
+            "root": root,
+            "rule": rule,
+            # 'kl': torch.tensor(0, device=self.device)
+            "kl_term": tkl,
+            "kl_nonterm": nkl,
+            "cos_term": tcs,
+            "cos_nonterm": ncs,
+            "log_cos_term": log_tcs,
+            "log_cos_nonterm": log_ncs,
+        }
+
+    def unique_terms(self, terms):
+        b, n = terms.shape
+        for t in terms:
+            output, inverse, counts = torch.unique(
+                t, return_inverse=True, return_counts=True
+            )
+            duplicated_index = counts.where(counts > 1)
 
     def loss(self, input, partition=False, soft=False):
-        b = input['word'].shape[0]
+        # b = input['word'].shape[0]
         # Calculate rule distributions
         self.rules = self.forward(input)
-        # terms = self.term_from_unary(input, self.rules['unary'])
+        terms = self.term_from_unary(input["word"], self.rules["unary"])
+        self.rules["word"] = input["word"]
 
         # Calculate inside algorithm
-        # result = self.pcfg(self.rules, terms, lens=input['seq_len'])
-        result = self.pcfg(self.rules, self.rules['unary'], lens=input['seq_len'])
+        # result = self.pcfg(
+        #     self.rules, terms, lens=input["seq_len"]
+        # )
+        # result = self.pcfg(
+        #     self.rules, terms, lens=input["seq_len"], topk=4
+        # )
+        # pf = self.pcfg(
+        #     self.rules, terms, lens=input["seq_len"]
+        # )
+        # result = self.pcfg(self.rules, self.rules['unary'], lens=input['seq_len'])
 
         # log_cos_term = self.cos_sim_max(self.rules['log_cos_term'])
         # log_cos_nonterm = self.cos_sim_max(self.rules['log_cos_nonterm'])
 
         if partition:
-            self.pf = self.part(self.rules, lens=input['seq_len'], mode=self.mode)
+            result = self.pcfg(
+                self.rules, terms, lens=input["seq_len"], topk=2
+            )
+            sent = self.pcfg(
+                self.rules, terms, lens=input["seq_len"]
+            )
+            self.pf = self.part(
+                self.rules, lens=input["seq_len"], mode=self.mode
+            )
             if soft:
-                return (-result['partition']), self.pf
-            result['partition'] = result['partition'] - self.pf
+                return (-result["partition"]), sent["partition"]
+            result["partition"] = result["partition"] - self.pf
+        else:
+            result = self.pcfg(
+                self.rules, terms, lens=input["seq_len"]
+            )
 
-        return -result['partition']
+        # # Attention-based weight
+        # emb_vec = self.word_encoder(input["word"])  # word embedding
+        # emb_vec = emb_vec.mean(1)  # mean pooling
+        # q, k = self.w_q(emb_vec), self.w_k(emb_vec)
+        # output, attn_vec = self.attn(q, k, result["partition"].unsqueeze(1))
 
-    def evaluate(self, input, decode_type, depth=0, depth_mode=False, **kwargs):
+        return -result["partition"]
+        # return -result['partition'] + 0.5 * pf['partition']
+        # return -output.squeeze(1)
+
+    def evaluate(self, input, decode_type, depth=0, **kwargs):
         self.rules = self.forward(input)
-        # terms = self.term_from_unary(input, self.rules['unary'])
+        terms = self.term_from_unary(input["word"], self.rules["unary"])
 
-        if decode_type == 'viterbi':
-            # result = self.pcfg(self.rules, terms, lens=input['seq_len'], viterbi=True, mbr=False)
-            result = self.pcfg(self.rules, self.rules['unary'], lens=input['seq_len'], viterbi=True, mbr=False)
-        elif decode_type == 'mbr':
-            # result = self.pcfg(self.rules, terms, lens=input['seq_len'], viterbi=False, mbr=True)
-            result = self.pcfg(self.rules, self.rules['unary'], lens=input['seq_len'], viterbi=False, mbr=True)
+        if decode_type == "viterbi":
+            result = self.pcfg(
+                self.rules,
+                terms,
+                lens=input["seq_len"],
+                viterbi=True,
+                mbr=False,
+            )
+            # result = self.pcfg(self.rules, self.rules['unary'], lens=input['seq_len'], viterbi=True, mbr=False)
+        elif decode_type == "mbr":
+            result = self.pcfg(
+                self.rules,
+                terms,
+                lens=input["seq_len"],
+                viterbi=False,
+                mbr=True,
+            )
+            # result = self.pcfg(self.rules, self.rules['unary'], lens=input['seq_len'], viterbi=False, mbr=True)
         else:
             raise NotImplementedError
 
         if depth > 0:
-            result['depth'] = self.part(self.rules, depth, mode='length', depth_output='full')
-            result['depth'] = result['depth'].exp()
+            result["depth"] = self.part(
+                self.rules, depth, mode="length", depth_output="full"
+            )
+            result["depth"] = result["depth"].exp()
 
         return result
