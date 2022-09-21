@@ -1,4 +1,5 @@
 from nltk import Tree
+from numpy import pad
 import torch
 import os
 import matplotlib.pyplot as plt
@@ -77,39 +78,60 @@ def span_to_list_old(span):
 
 def span_to_list(span):
     root = span[0]
+    start, end = root[:2]
     
+    # Check trivial span
     if root[0] + 1 == root[1]:
         label = f'T-{root[2]}' if len(root) >= 3 else 'T'
         return [label, ['word']]
 
     label = f'NT-{root[2]}' if len(root) >= 3 else 'NT'
-    left_child = span[1]
-    if len(span) == 2:
-        return [label, span_to_list([left_child])]
-    others = span[2:]
+    # Check single span
+    if len(span) == 1:
+        size = end - start
+        children = [['T', ['word']] for _ in range(size)]
+        return [label, *children]
 
-    sibling_index = []
-    end = left_child[1]
+    # Check set of span for each children
+    others = span[1:]
+    children_index = []
+    child_end = others[0][1]
     for n in others:
-        if n[0] >= end:
+        if child_end == end:
+            break
+        if n[0] >= child_end:
             idx = others.index(n)
-            sibling_index.append(idx)
-            end = n[1]
+            children_index.append(idx)
+            child_end = n[1]
+    children_index = [0] + children_index + [len(others)]
 
-    children = []
-    if len(sibling_index) > 0:
-        left_child = [left_child] + others[:sibling_index[0]]
-    else:
-        left_child = [left_child] + others
-    children.append(span_to_list(left_child))
+    # Split by children index
+    children = [others[children_index[i]:children_index[i+1]] for i in range(len(children_index)-1)]
+    children = [[[start, start]]] + children + [[[end, end]]]
 
-    for i in range(len(sibling_index)):
-        if i == len(sibling_index) - 1:
-            child = others[sibling_index[i]:]
-            children.append(span_to_list(child))
-        else:
-            child = others[sibling_index[i]:sibling_index[i+1]]
-            children.append(span_to_list(child))
+    # If unseen terminal in tree, add them to children
+    terms = {}
+    for i in range(len(children)-1):
+        prev_end = children[i][0][1]
+        size = children[i+1][0][0] - prev_end
+        if size > 0:
+            term = [[i, i+1] for i in range(prev_end, prev_end+size)]
+            terms.update({i: term})
+    children = children[1:-1]
+
+    n_children = []
+    for i in range(len(children)):
+        if i in terms.keys():
+            for t in terms[i]:
+                n_children.append([t])
+        n_children += [children[i]]
+    if i+1 in terms.keys():
+        for t in terms[i+1]:
+            n_children.append([t])
+    children = n_children
+
+    children = [span_to_list(c) for c in children]
+
     return [label] + children
 
 def tensor_to_heatmap(x, batch=True, dirname='heatmap', filename='cos_sim.png', vmin=-1, vmax=1):
