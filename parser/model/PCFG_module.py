@@ -208,12 +208,11 @@ class PCFG_module(nn.Module):
                 retain_graph=True
             )
         
-    def term_from_unary(self, input, term):
-        x = input['word']
-        n = x.shape[1]
+    def term_from_unary(self, word, term):
+        n = word.shape[1]
         b = term.shape[0]
         term = term.unsqueeze(1).expand(b, n, self.T, self.V)
-        indices = x[..., None, None].expand(b, n, self.T, 1)
+        indices = word[..., None, None].expand(b, n, self.T, 1)
         return torch.gather(term, 3, indices).squeeze(3)
 
     def soft_backward(self, loss, z_l, optimizer, dambda=1.0, target='rule', mode='projection'):
