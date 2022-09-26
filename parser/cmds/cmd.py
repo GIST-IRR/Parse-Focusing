@@ -5,7 +5,6 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 from parser.helper.metric import LikelihoodMetric, UF1, LossMetric, UAS
-import asyncio
 
 from utils import (
     depth_from_tree,

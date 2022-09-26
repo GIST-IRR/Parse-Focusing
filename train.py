@@ -11,20 +11,18 @@ from pathlib import Path
 from easydict import EasyDict as edict
 import yaml
 
-from torch_support.train_support import fix_seed, setup_log_dir
+from torch_support import reproducibility as reprod
+from torch_support.train_support import setup_log_dir
 
 import random
 import numpy as np
 import copy
 
 def train(args2):
+    # load config
     yaml_cfg = yaml.load(open(args2.conf, 'r'))
     args = edict(yaml_cfg)
     args.update(args2.__dict__)
-
-    print(f"Set the device with ID {args.device} visible")
-    args.device = f'cuda:{args.device}' if torch.cuda.is_available() else 'cpu'
-    torch.cuda.set_device(args.device)
 
     config_path = Path(
         getattr(
@@ -36,13 +34,20 @@ def train(args2):
     config_name = config_path.stem
     args.save_dir = args.save_dir + "/{}".format(config_name)
 
+    # set device
+    print(f"Set the device with ID {args.device} visible")
+    args.device = f'cuda:{args.device}' if torch.cuda.is_available() else 'cpu'
+    torch.cuda.set_device(args.device)
+
+    # fix seed
     if hasattr(args, 'seed'):
-        fix_seed(args.seed)
+        reprod.fix_seed(args.seed)
 
     # Auto-generation of log dir
     log_dir = Path(args2.conf).stem
     setup_log_dir(f'log/{log_dir}')
 
+    # train
     try:
         command = Train()
         command(args)

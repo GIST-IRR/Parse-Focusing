@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from torch_support.train_support import reproducible_save, reproducible_load
+from torch_support import reproducibility as reprod
 
 from datetime import datetime, timedelta
 from parser.cmds.cmd import CMD
@@ -262,7 +262,7 @@ class Train(CMD):
                 best_metric = dev_ll 
                 best_e = epoch
 
-                reproducible_save(
+                reprod.save(
                     self.model,
                     self.optimizer,
                     args.save_dir + "/best.pt",
@@ -273,7 +273,7 @@ class Train(CMD):
                 log.info(f"{t}s elapsed\n")
 
             # save the last model
-            reproducible_save(
+            reprod.save(
                 self.model,
                 self.optimizer,
                 args.save_dir + "/last.pt",
