@@ -26,7 +26,13 @@ def train(args2):
     args.device = f'cuda:{args.device}' if torch.cuda.is_available() else 'cpu'
     torch.cuda.set_device(args.device)
 
-    config_path = Path(args.conf if args.conf else args2.load_from_dir + "/config.yaml")
+    config_path = Path(
+        getattr(
+            args,
+            "conf",
+            getattr(args2, "load_from_dir", "") + "/config.yaml"
+        )
+    )
     config_name = config_path.stem
     args.save_dir = args.save_dir + "/{}".format(config_name)
 

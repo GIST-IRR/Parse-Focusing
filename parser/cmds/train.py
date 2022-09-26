@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from torch_support.train_support import reproducible_save, reproducible_load
 
 from datetime import datetime, timedelta
 from parser.cmds.cmd import CMD
@@ -11,27 +12,30 @@ from parser.helper.data_module import DataModule
 from pathlib import Path
 
 from torch.utils.tensorboard import SummaryWriter
+import torch.nn as nn
 
 import math
 import random
 from utils import tensor_to_heatmap
+import gensim
+import pickle
 
 class Train(CMD):
 
     def __call__(self, args):
 
         self.args = args
-        self.device = args.device
+        self.device = getattr(args, "device", "cpu")
 
+        # Load dataset
         dataset = DataModule(args)
-        self.idx2word = np.array(list(dataset.word_vocab.idx2word.values())) # for word_vocab
+        # self.idx2word = np.array(list(dataset.word_vocab.idx2word.values())) 
 
+        # Setup model and optimizer
         self.model = get_model(args.model, dataset)
         self.optimizer = get_optimizer(args.optimizer, self.model)
-        # self.optimizer_tmp = torch.optim.SGD(self.model.parameters(), lr=0.01)
-        # self.optimizer_tmp = get_optimizer(args.optimizer, self.model)
-        # self.optim_flag = False
 
+        # Load pretrained model
         start_epoch = 1
         if hasattr(args, 'pretrained_model'):
             with open(args.pretrained_model, 'rb') as f:
@@ -61,6 +65,20 @@ class Train(CMD):
         dataset.generator = generator
         dataset.worker_init_fn = worker_init_fn
 
+        # Load word embeddings
+        # self.word_vectors = gensim.models.KeyedVectors.load('word2vec-ptb-std.wordvectors')
+        # self.model.word_emb = nn.Parameter(torch.tensor(self.word_vectors.vectors, device=args.device))
+        # self.model.term_mlp2.weight = nn.Parameter(torch.tensor(self.word_vectors.vectors, device=args.device))
+
+        # weights = torch.tensor(self.word_vectors.vectors, device=args.device)
+        # self.model.word_emb = nn.Embedding.from_pretrained(weights)
+        # self.model.word_emb.requires_grad_(False)
+
+        # Load term embeddings
+        # with open('word2vec-ptb-std.means', 'rb') as f:
+        #     self.model.term_emb = nn.Parameter(torch.tensor(pickle.load(f), device=args.device))
+
+        # Setup logger
         create_save_path(args)
         log = get_logger(args)
         if not hasattr(args, 'seed'):
@@ -73,27 +91,37 @@ class Train(CMD):
         log.info(args)
         eval_loader = dataset.val_dataloader
 
+        # Setup tensorboard writer
         self.writer = SummaryWriter(args.save_dir)
 
         '''
         Training
         '''
-        train_arg = args.train
+        train_arg = getattr(args, "train")
+        test_arg = getattr(args, "test")
         self.train_arg = train_arg
+        self.test_arg = test_arg
 
         # Arguments for validation
-        eval_depth = self.args.test.eval_depth if hasattr(self.args.test, 'eval_depth') else False
-        left_binarization = self.args.test.left_binarization if hasattr(self.args.test, 'left_binarization') else False
-        right_binarization = self.args.test.right_binarization if hasattr(self.args.test, 'right_binarization') else False
+        eval_depth = getattr(test_arg, "eval_depth", False)
+        left_binarization = getattr(test_arg, "left_binarization", False)
+        right_binarization = getattr(test_arg, "right_binarization", False)
         
         # iteration setup
-        self.num_batch = len(dataset.train_dataloader(max_len=train_arg.max_len))
-        if hasattr(train_arg, 'total_iter'):
-            train_arg.max_epoch = math.ceil(train_arg.total_iter / self.num_batch)
-            log.info(f'num of batch: {self.num_batch}, max epoch: {train_arg.max_epoch}')
+        self.num_batch = len(
+            dataset.train_dataloader(max_len=train_arg.max_len)
+        )
+        if hasattr(train_arg, "total_iter"):
+            train_arg.max_epoch = math.ceil(
+                train_arg.total_iter / self.num_batch
+            )
+            log.info(
+                f'num of batch: {self.num_batch}, max epoch: {train_arg.max_epoch}'
+            )
         train_arg.total_iter = train_arg.max_epoch * self.num_batch
         log.info(f'total iter: {train_arg.total_iter}')
-        if hasattr(train_arg, 'dambda_warmup') and train_arg.dambda_warmup:
+
+        if getattr(train_arg, "dambda_warmup", False):
             train_arg.warmup_iter = int(train_arg.total_iter * train_arg.dambda_warmup)
             train_arg.warmup_start = int(train_arg.total_iter * (train_arg.dambda_warmup - 0.1))
             train_arg.warmup_end = int(train_arg.total_iter * (train_arg.dambda_warmup + 0.1))
@@ -105,12 +133,14 @@ class Train(CMD):
         self.partition = False
         self.total_loss = 0
         self.total_len = 0
-        self.total_kl_term = 0
-        self.total_kl_nonterm = 0
-        self.total_cos_term = 0
-        self.total_cos_nonterm = 0
-        self.total_log_cos_term = 0
-        self.total_log_cos_nonterm = 0
+        self.total_metrics = {
+            "kl_term": 0,
+            "kl_nonterm": 0,
+            "cos_term": 0,
+            "cos_nonterm": 0,
+            "log_cos_term": 0,
+            "log_cos_nonterm": 0,
+        }
         self.dambda = 1
         self.step = 1
 
@@ -129,35 +159,48 @@ class Train(CMD):
 
             # curriculum learning. Used in compound PCFG.
             if train_arg.curriculum:
-                self.max_len = min(train_arg.start_len + epoch - 1, train_arg.max_len)
+                self.max_len = min(
+                    train_arg.start_len + epoch - 1, train_arg.max_len
+                )
                 self.min_len = train_arg.min_len
             else:
                 self.max_len = train_arg.max_len
                 self.min_len = train_arg.min_len
 
-            train_loader = dataset.train_dataloader(max_len=self.max_len, min_len=self.min_len)
+            train_loader = dataset.train_dataloader(
+                max_len=self.max_len, min_len=self.min_len
+            )
             # if epoch == 1:
             self.num_batch = len(train_loader)
             self.total_iter = self.num_batch * train_arg.max_epoch
 
-            train_loader_autodevice = DataPrefetcher(train_loader, device=self.device)
-            eval_loader_autodevice = DataPrefetcher(eval_loader, device=self.device)
+            train_loader_autodevice = DataPrefetcher(
+                train_loader, device=self.device
+            )
+            eval_loader_autodevice = DataPrefetcher(
+                eval_loader, device=self.device
+            )
             start = datetime.now()
             self.train(train_loader_autodevice)
 
             heatmap_dir = os.path.join(self.args.save_dir, 'heatmap')
-            tensor_to_heatmap(self.model.rules['kl_term'], dirname=heatmap_dir, filename=f'kl_term_{self.iter}.png', vmin=0, vmax=100)
-            tensor_to_heatmap(self.model.rules['kl_nonterm'], dirname=heatmap_dir, filename=f'kl_nonterm_{self.iter}.png', vmin=0, vmax=100)
-            tensor_to_heatmap(self.model.rules['cos_term'], dirname=heatmap_dir, filename=f'cos_term_{self.iter}.png')
-            tensor_to_heatmap(self.model.rules['cos_nonterm'], dirname=heatmap_dir, filename=f'cos_nonterm_{self.iter}.png')
-            tensor_to_heatmap(self.model.rules['log_cos_term'], dirname=heatmap_dir, filename=f'log_cos_term_{self.iter}.png')
-            tensor_to_heatmap(self.model.rules['log_cos_nonterm'], dirname=heatmap_dir, filename=f'log_cos_nonterm_{self.iter}.png')
-
+            for k in self.total_metrics.keys():
+                tensor_to_heatmap(
+                    self.model.metrics[k],
+                    dirname=heatmap_dir,
+                    filename=f'{k}_{self.iter}.png'
+                )
             log.info(f"Epoch {epoch} / {train_arg.max_epoch}:")
 
-
-            dev_f1_metric, _, dev_ll, dev_left_metric, dev_right_metric = self.evaluate(eval_loader_autodevice,
-                decode_type=args.test.decode, eval_depth=eval_depth, left_binarization=left_binarization, right_binarization=right_binarization)
+            # Evaluation
+            dev_f1_metric, _, dev_ll, dev_left_metric, dev_right_metric = \
+                self.evaluate(
+                    eval_loader_autodevice,
+                    decode_type=args.test.decode,
+                    eval_depth=eval_depth,
+                    left_binarization=left_binarization,
+                    right_binarization=right_binarization
+                )
             log.info(f"{'dev f1:':6}   {dev_f1_metric}")
             log.info(f"{'dev ll:':6}   {dev_ll}")
 
@@ -218,34 +261,23 @@ class Train(CMD):
             if dev_ll > best_metric:
                 best_metric = dev_ll 
                 best_e = epoch
-                checkpoint = {
-                    'epoch': epoch,
-                    'model': self.model.state_dict(),
-                    'optimizer': self.optimizer.state_dict(),
-                    'random.python': random.getstate(),
-                    'random.numpy': np.random.get_state(),
-                    'random.torch': generator.get_state()
-                }
-                torch.save(
-                   obj=checkpoint,
-                   f=args.save_dir + "/best.pt"
+
+                reproducible_save(
+                    self.model,
+                    self.optimizer,
+                    args.save_dir + "/best.pt",
+                    epoch=epoch,
                 )
                 log.info(f"{t}s elapsed (saved)\n")
             else:
                 log.info(f"{t}s elapsed\n")
 
             # save the last model
-            checkpoint = {
-                'epoch': epoch,
-                'model': self.model.state_dict(),
-                'optimizer': self.optimizer.state_dict(),
-                'random.python': random.getstate(),
-                'random.numpy': np.random.get_state(),
-                'random.torch': generator.get_state()
-            }
-            torch.save(
-                obj=checkpoint,
-                f=args.save_dir + '/last.pt'
+            reproducible_save(
+                self.model,
+                self.optimizer,
+                args.save_dir + "/last.pt",
+                epoch=epoch,
             )
 
             total_time += t

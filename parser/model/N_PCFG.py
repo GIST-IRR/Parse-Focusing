@@ -1,12 +1,13 @@
 from re import M
 import numpy as np
 import torch
+from torch import tensor
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributions as dist
 
 from parser.modules.attentions import ScaledDotProductAttention
-from ..modules.res import ResLayer, ResLayerBN
+from ..modules.res import ResLayer
 
 from parser.pcfgs.partition_function import PartitionFunction
 from ..pcfgs.pcfg import PCFG
@@ -15,6 +16,7 @@ from .PCFG_module import PCFG_module
 import matplotlib.pyplot as plt
 import math
 import os
+from typing import Dict
 
 
 class NeuralPCFG(PCFG_module):
@@ -25,19 +27,20 @@ class NeuralPCFG(PCFG_module):
         self.device = dataset.device
         self.args = args
 
-        self.NT = args.NT
-        self.T = args.T
+        self.NT = getattr(args, "NT", 30)
+        self.T = getattr(args, "T", 60)
         self.NT_T = self.NT + self.T
         self.V = len(dataset.word_vocab)
 
-        self.s_dim = args.s_dim
+        self.s_dim = getattr(args, "s_dim", 256)
 
         # embedding vectors for symbols
         self.term_emb = nn.Parameter(torch.randn(self.T, self.s_dim))
         self.nonterm_emb = nn.Parameter(torch.randn(self.NT, self.s_dim))
         self.root_emb = nn.Parameter(torch.randn(1, self.s_dim))
+        # additional embeddings
+        self.word_emb = nn.Embedding(self.V, self.s_dim)
 
-        # Original
         # Term FCN
         self.term_mlp = nn.Sequential(
             nn.Linear(self.s_dim, self.s_dim),
@@ -45,10 +48,6 @@ class NeuralPCFG(PCFG_module):
             ResLayer(self.s_dim, self.s_dim),
             nn.Linear(self.s_dim, self.V),
         )
-        # self.term_mlp = nn.Sequential(nn.Linear(self.s_dim, self.s_dim),
-        #                               ResLayer(self.s_dim, self.s_dim),
-        #                               ResLayer(self.s_dim, self.s_dim))
-        # self.term_mlp2 = nn.Linear(self.s_dim, self.V)
 
         self.root_mlp = nn.Sequential(
             nn.Linear(self.s_dim, self.s_dim),
@@ -59,16 +58,8 @@ class NeuralPCFG(PCFG_module):
 
         # Rule FCN
         self.rule_mlp = nn.Linear(self.s_dim, (self.NT_T) ** 2)
-
         # Partition function
-        self.mode = args.mode if hasattr(args, "mode") else None
-
-        # Attention
-        # self.word_encoder = nn.Embedding(self.V, self.s_dim)
-        # self.w_q = nn.Linear(self.s_dim, self.s_dim)
-        # self.w_k = nn.Linear(self.s_dim, self.s_dim)
-        # self.w_v = nn.Linear(self.s_dim, self.s_dim)
-        # self.attn = ScaledDotProductAttention()
+        self.mode = args.get("mode")
 
         # I find this is important for neural/compound PCFG. if do not use this initialization, the performance would get much worser.
         self._initialize()
@@ -127,25 +118,16 @@ class NeuralPCFG(PCFG_module):
             plt.savefig(path, bbox_inches="tight")
             plt.close()
 
-    def entropy_root(self, batch=False, probs=False, reduce="none"):
+    def entropy(self, key, batch=False, probs=False, reduce="none"):
+        assert key == "root" or key == "rule" or key == "unary"
         return self._entropy(
-            self.rules["root"], batch=batch, probs=probs, reduce=reduce
-        )
-
-    def entropy_rules(self, batch=False, probs=False, reduce="none"):
-        return self._entropy(
-            self.rules["rule"], batch=batch, probs=probs, reduce=reduce
-        )
-
-    def entropy_terms(self, batch=False, probs=False, reduce="none"):
-        return self._entropy(
-            self.rules["unary"], batch=batch, probs=probs, reduce=reduce
+            self.rules[key], batch=batch, probs=probs, reduce=reduce
         )
 
     def get_entropy(self, batch=False, probs=False, reduce="mean"):
-        r_ent = self.entropy_root(batch=batch, probs=probs, reduce=reduce)
-        n_ent = self.entropy_rules(batch=batch, probs=probs, reduce=reduce)
-        t_ent = self.entropy_terms(batch=batch, probs=probs, reduce=reduce)
+        r_ent = self.entropy("root", batch=batch, probs=probs, reduce=reduce)
+        n_ent = self.entropy("rule", batch=batch, probs=probs, reduce=reduce)
+        t_ent = self.entropy("unary", batch=batch, probs=probs, reduce=reduce)
 
         # ent_prob = torch.cat([r_ent, n_ent, t_ent])
         # ent_prob = ent_prob.mean()
@@ -169,18 +151,68 @@ class NeuralPCFG(PCFG_module):
                 pass
         return np.asarray(sent_vec) / numw
 
+    def rules_similarity(self, rule=None, unary=None):
+        if rule is None:
+            rule = self.rules["rule"]
+        if unary is None:
+            unary = self.rules["unary"]
+
+        b = rule.shape[0]
+        
+        tkl = self.kl_div(unary) # KLD for terminal
+        nkl = self.kl_div(rule) # KLD for nonterminal
+        tcs = self.cos_sim(unary) # cos sim for terminal
+        ncs = self.cos_sim(
+            rule.reshape(b, self.NT, -1)
+        ) # cos sim for nonterminal
+        log_tcs = self.cos_sim(unary, log=True) # log cos sim for terminal
+        log_ncs = self.cos_sim(
+            rule.reshape(b, self.NT, -1), log=True
+        ) # log cos sim for nonterminal
+        
+        return {
+            "kl_term": tkl,
+            "kl_nonterm": nkl,
+            "cos_term": tcs,
+            "cos_nonterm": ncs,
+            "log_cos_term": log_tcs,
+            "log_cos_nonterm": log_ncs
+        }
+
+    @property
+    def metrics(self):
+        if getattr(self, "_metrics", None) is None:
+            self._metrics = self.rules_similarity()
+        return self._metrics
+
+    def clear_metrics(self):
+        self._metrics = None
+
+    @property
+    def rules(self):
+        if getattr(self, "_rules", None) is None:
+            self._rules = self.forward({"word": torch.zeros([1, 1])})
+        return self._rules
+
+    @rules.setter
+    def rules(self, rule):
+        self._rules = rule
+
     def forward(self, input):
         x = input["word"]
         b, n = x.shape[:2]
 
         def roots():
             root_emb = self.root_emb
+            # root_emb = F.dropout(self.root_emb, p=0.5, training=self.training)
             roots = self.root_mlp(root_emb).log_softmax(-1)
             roots = roots.expand(b, self.NT)
             return roots
 
         def terms():
-            term_prob = self.term_mlp(self.term_emb).log_softmax(-1)
+            term_emb = self.term_emb
+            # term_emb = F.dropout(self.term_emb, p=0.5, training=self.training)
+            term_prob = self.term_mlp(term_emb).log_softmax(-1)
             term_prob = term_prob.unsqueeze(0).expand(b, self.T, self.V)
             # term_prob = self.term_from_unary(input, term_prob)
 
@@ -199,31 +231,14 @@ class NeuralPCFG(PCFG_module):
             return term_prob
 
         def rules():
-            rule_prob = self.rule_mlp(self.nonterm_emb).log_softmax(-1)
+            nonterm_emb = self.nonterm_emb
+            # nonterm_emb = F.dropout(self.nonterm_emb, p=0.5, training=self.training)
+            rule_prob = self.rule_mlp(nonterm_emb).log_softmax(-1)
             rule_prob = rule_prob.reshape(self.NT, self.NT_T, self.NT_T)
             rule_prob = rule_prob.unsqueeze(0).expand(b, *rule_prob.shape)
             return rule_prob
 
         root, unary, rule = roots(), terms(), rules()
-
-        # KLD for terminal
-        tkl = self.kl_div(unary)
-
-        # KLD for nonterminal
-        nkl = self.kl_div(rule)
-
-        # cos sim for terminal
-        tcs = self.cos_sim(unary)
-
-        # cos sim for nonterminal
-        ncs = self.cos_sim(rule.reshape(b, self.NT, -1))
-
-        # log cos sim for terminal
-        log_tcs = self.cos_sim(unary, log=True)
-
-        # log cos sim for nonterminal
-        log_ncs = self.cos_sim(rule.reshape(b, self.NT, -1), log=True)
-
         # for gradient conflict by using gradients of rules
         if self.training:
             root.retain_grad()
@@ -238,17 +253,13 @@ class NeuralPCFG(PCFG_module):
 
             # unary.register_hook(masking)
 
+        self.clear_metrics() # clear metrics becuase we have new rules
+
         return {
             "unary": unary,
             "root": root,
             "rule": rule,
             # 'kl': torch.tensor(0, device=self.device)
-            "kl_term": tkl,
-            "kl_nonterm": nkl,
-            "cos_term": tcs,
-            "cos_nonterm": ncs,
-            "log_cos_term": log_tcs,
-            "log_cos_nonterm": log_ncs,
         }
 
     def unique_terms(self, terms):
@@ -293,7 +304,7 @@ class NeuralPCFG(PCFG_module):
             )
             if soft:
                 return (-result["partition"]), sent["partition"]
-            result["partition"] = result["partition"] - self.pf
+            result["partition"] = result["partition"] - sent["partition"]
         else:
             result = self.pcfg(
                 self.rules, terms, lens=input["seq_len"]
