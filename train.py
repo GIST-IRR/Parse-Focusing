@@ -12,7 +12,11 @@ from easydict import EasyDict as edict
 import yaml
 
 from torch_support import reproducibility as reprod
-from torch_support.train_support import setup_log_dir
+from torch_support.train_support import (
+    setup_log_dir,
+    get_config_from,
+    command_decorator
+)
 
 import random
 import numpy as np
@@ -20,19 +24,14 @@ import copy
 
 def train(args2):
     # load config
-    yaml_cfg = yaml.load(open(args2.conf, 'r'))
-    args = edict(yaml_cfg)
+    args = get_config_from(args2.conf)
     args.update(args2.__dict__)
-
-    config_path = Path(
-        getattr(
-            args,
-            "conf",
-            getattr(args2, "load_from_dir", "") + "/config.yaml"
-        )
-    )
+    # update save directory
+    config_path = Path(args2.conf)
     config_name = config_path.stem
     args.save_dir = args.save_dir + "/{}".format(config_name)
+    # generate save directory
+    setup_log_dir(args.save_dir)
 
     # set device
     print(f"Set the device with ID {args.device} visible")
@@ -43,29 +42,9 @@ def train(args2):
     if hasattr(args, 'seed'):
         reprod.fix_seed(args.seed)
 
-    # Auto-generation of log dir
-    log_dir = Path(args2.conf).stem
-    setup_log_dir(f'log/{log_dir}')
-
     # train
-    try:
-        command = Train()
-        command(args)
-    except KeyboardInterrupt:
-        command = int(input('Enter 0 to delete the repo, and enter anything else to save.'))
-        if command == 0:
-            shutil.rmtree(args.save_dir)
-            print("You have successfully delete the created log directory.")
-        else:
-            print("log directory have been saved.")
-    except Exception:
-        traceback.print_exc()
-        command = int(input('Enter 0 to delete the repo, and enter anything else to save.'))
-        if command == 0:
-            shutil.rmtree(args.save_dir)
-            print("log directory have been deleted.")
-        else:
-            print("log directory have been saved.")
+    train_model = command_decorator(Train())
+    train_model(args)
 
 def train_manager(args, event):
     event.set()

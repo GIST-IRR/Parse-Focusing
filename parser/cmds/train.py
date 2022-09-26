@@ -79,7 +79,6 @@ class Train(CMD):
         #     self.model.term_emb = nn.Parameter(torch.tensor(pickle.load(f), device=args.device))
 
         # Setup logger
-        create_save_path(args)
         log = get_logger(args)
         if not hasattr(args, 'seed'):
             log.info(f'seed: {torch.initial_seed()}')
