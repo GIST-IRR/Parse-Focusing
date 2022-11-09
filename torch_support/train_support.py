@@ -15,17 +15,39 @@ import json
 from easydict import EasyDict
 
 def get_config_from(path, easydict=True, verbose=False):
+    """Only support yaml and json file.
+
+    Args:
+        path (_type_): _description_
+        easydict (bool, optional): _description_. Defaults to True.
+        verbose (bool, optional): _description_. Defaults to False.
+
+    Raises:
+        ValueError: _description_
+        ValueError: _description_
+        ValueError: _description_
+        ValueError: _description_
+
+    Returns:
+        _type_: _description_
+    """
     # check the path
     if not isinstance(path, Path):
         path = Path(path)
     
     # load the config file
     if path.suffix == '.json':
-        with open(path, 'r') as f:
-            config = json.load(f)
+        try:
+            with open(path, 'r') as f:
+                config = json.load(f)
+        except:
+            raise ValueError(f'Cannot load the config file. Please check the file path.')
     elif path.suffix == '.yaml':
-        with open(path, 'r') as f:
-            config = load(f, Loader=Loader)
+        try:
+            with open(path, 'r') as f:
+                config = load(f, Loader=Loader)
+        except:
+            raise ValueError(f'Cannot load the config file. Please check the file path.')
     else:  
         raise ValueError(f'Unsupport file type {path.suffix}')
     
@@ -44,6 +66,16 @@ def get_config_from(path, easydict=True, verbose=False):
         print(config)
     
     return config
+
+def save_config_to(config, path, type='yaml'):
+    if type == 'yaml':
+        with open(path, 'w') as f:
+            dump(config, f, Dumper=Dumper)
+    elif type == 'json':
+        with open(path, 'w') as f:
+            json.dump(config, f)
+    else:
+        raise ValueError(f'Unsupport type {type}')
 
 def setup_log_dir(path, parents=True, exist_ok=True):
     if isinstance(path, (list, tuple)):
@@ -137,7 +169,8 @@ def command_decorator(command):
             return result
         except KeyboardInterrupt:
             while True:
-                cmd = int(input('Do you want to save the model? [y/n]: '))
+                print(f'Save dir: {args.save_dir}')
+                cmd = input('Do you want to save the model? [y/n]: ')
                 if cmd == 'y':
                     print("Log directory have been saved.")
                     break
@@ -151,7 +184,8 @@ def command_decorator(command):
         except Exception:
             traceback.print_exc()
             while True:
-                cmd = int(input('Do you want to save the model? [y/n]: '))
+                print(f'Save dir: {args.save_dir}')
+                cmd = input('Do you want to save the model? [y/n]: ')
                 if cmd == 'y':
                     print("Log directory have been saved.")
                     break

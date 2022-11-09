@@ -1,0 +1,4 @@
+PyYAML==5.4.1
+easydict==1.9
+numpy==1.21.2
+torch==1.12.1
