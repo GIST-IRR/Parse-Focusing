@@ -141,7 +141,7 @@ class Evaluate(CMD):
             ])
 
         tree_dir = Path(args.load_from_dir)
-        tree_file = tree_dir / 'parse_tree.pickle'
+        tree_file = tree_dir / f'{data_split}-parse_tree.pickle'
         tree_obj = {
             'vocab': self.vocab,
             'trees': self.parse_trees
