@@ -10,25 +10,21 @@ import torch
 from parser.model.C_PCFG_debug import CompoundPCFG_D
 
 
-def get_model(args, dataset):
+def get_model(args, device='cpu'):
     if args.model_name == 'NPCFG':
-        return NeuralPCFG(args, dataset).to(dataset.device)
+        return NeuralPCFG(args).to(device)
 
     elif args.model_name == 'CPCFG':
-        return CompoundPCFG(args, dataset).to(dataset.device)
-
-    elif args.model_name == 'CPCFG_debug':
-        return CompoundPCFG_D(args, dataset).to(dataset.device)
+        return CompoundPCFG(args).to(device)
 
     elif args.model_name == 'TNPCFG':
-        return TNPCFG(args, dataset).to(dataset.device)
-
+        return TNPCFG(args).to(device)
 
     elif args.model_name == 'NLPCFG':
-        return NeuralLPCFG(args, dataset).to(dataset.device)
+        return NeuralLPCFG(args).to(device)
 
     elif args.model_name == 'NBLPCFG':
-        return NeuralBLPCFG(args, dataset).to(dataset.device)
+        return NeuralBLPCFG(args).to(device)
 
     else:
         raise KeyError

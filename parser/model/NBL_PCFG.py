@@ -9,13 +9,11 @@ class NeuralBLPCFG(nn.Module):
     def __init__(self, args, dataset):
         super(NeuralBLPCFG, self).__init__()
         self.pcfg = BLPCFG()
-
-        self.device = dataset.device
         self.args = args
         # number of states
         self.NT = args.NT
         self.T = args.T
-        self.V = len(dataset.word_vocab)
+        self.V = args.V
         self.NT_T = self.NT + self.T
         self.dataset = dataset
 

@@ -12,12 +12,11 @@ class NeuralLPCFG(nn.Module):
     def __init__(self, args, dataset):
         super(NeuralLPCFG, self).__init__()
         self.pcfg = L_PCFG()
-        self.device = dataset.device
         self.args = args
         # number of states
         self.NT = args.NT
         self.T = args.T
-        self.V = len(dataset.word_vocab)
+        self.V = args.V
         self.NT_T = self.NT + self.T
 
         self.depth = args.depth
