@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 from parser.helper.conflict_detector import ConflictDetector
-from torch_support import reproducibility as reprod
 
 from datetime import datetime, timedelta
 from parser.cmds.cmd import CMD
@@ -8,7 +7,7 @@ from parser.helper.metric import LikelihoodMetric, Metric
 from parser.helper.loader_wrapper import DataPrefetcher
 import torch
 import numpy as np
-from parser.helper.util import *
+# from parser.helper.util import *
 from parser.helper.data_module import DataModule
 
 from torch.utils.tensorboard import SummaryWriter
@@ -17,6 +16,10 @@ import math
 import random
 from utils import tensor_to_heatmap
 
+import torch_support.reproducibility as reproducibility
+from torch_support.train_support import (
+    get_logger
+)
 from torch_support.load_model import (
     get_model_args,
     get_optimizer_args
@@ -50,30 +53,22 @@ class Train(CMD):
         # Load pretrained model
         start_epoch = 1
         if hasattr(args, 'pretrained_model'):
-            with open(args.pretrained_model, 'rb') as f:
-                checkpoint = torch.load(f, map_location=self.device)
-            start_epoch = checkpoint['epoch'] + 1
+            checkpoint = reproducibility.load(args.pretrained_model)
+            # Load model
             self.model.load_state_dict(checkpoint['model'])
+            # Load optimizer
             self.optimizer.load_state_dict(checkpoint['optimizer'])
-            random.setstate(checkpoint['random.python'])
-            np.random.set_state(checkpoint['random.numpy'])
-
-            def seed_worker(worker_id):
-                random.setstate(checkpoint['random.python'])
-                np.random.set_state(checkpoint['random.numpy'])
-
-            worker_init_fn = seed_worker
-            generator = torch.Generator()
-            generator.set_state(checkpoint['random.torch'].cpu())
+            # Load meta data
+            start_epoch = checkpoint['epoch'] + 1
+            # Load random state
+            worker_init_fn = checkpoint['worker_init_fn']
+            generator = checkpoint['generator']
         else:
-            def seed_worker(worker_id):
-                worker_seed = args.seed % 2**32
-                np.random.seed(worker_seed)
-                random.seed(worker_seed)
-
-            worker_init_fn = seed_worker
-            generator = torch.Generator()
-            generator.manual_seed(args.seed)   
+            if hasattr(args, 'seed'):
+                worker_init_fn, generator = reproducibility.fix_seed(
+                    args.seed
+                )
+        
         dataset.generator = generator
         dataset.worker_init_fn = worker_init_fn
 
@@ -310,10 +305,10 @@ class Train(CMD):
                 best_metric = dev_ll 
                 best_e = epoch
 
-                reprod.save(
-                    self.model,
-                    self.optimizer,
-                    args.save_dir + "/best.pt",
+                reproducibility.save(
+                    args.save_dir + "/last.pt",
+                    model=self.model.state_dict(),
+                    optimizer=self.optimizer.state_dict(),
                     epoch=epoch,
                 )
                 log.info(f"{t}s elapsed (saved)\n")
@@ -321,10 +316,10 @@ class Train(CMD):
                 log.info(f"{t}s elapsed\n")
 
             # save the last model
-            reprod.save(
-                self.model,
-                self.optimizer,
+            reproducibility.save(
                 args.save_dir + "/last.pt",
+                model=self.model.state_dict(),
+                optimizer=self.optimizer.state_dict(),
                 epoch=epoch,
             )
 

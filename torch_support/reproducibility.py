@@ -2,6 +2,7 @@ import random
 import numpy as np
 import torch
 import os
+from pathlib import Path
 
 def fix_seed(
         seed: int,
@@ -9,8 +10,8 @@ def fix_seed(
         numpy_seed: bool=True,
         torch_seed: bool=True,
         cuda_seed: bool=True,
-        worker_init_fn: bool=False,
-        generator: bool=False,
+        worker_init_fn: bool=True,
+        generator: bool=True,
         deterministic: bool=True,
         benchmark: bool=False,
         work_space_config: str=":16:8"
@@ -55,36 +56,36 @@ def fix_seed(
         else:
             os.environ['CUDA_LAUNCH_BLOCKING']="1"
 
-    worker_init_fn = None
-    generator = None
-
     if worker_init_fn:
         def seed_worker(worker_id):
             worker_seed = seed % 2**32
-            np.random.seed(worker_seed)
             random.seed(worker_seed)
+            np.random.seed(worker_seed)
         worker_init_fn = seed_worker
+    else:
+        worker_init_fn = None
     
     if generator:
         generator = torch.Generator()
         generator.manual_seed(seed)
+    else:
+        generator = None
 
     return worker_init_fn, generator
 
 def save(
-        model, optimizer, save_name,
-        scheduler=None,
+        save_name,
         reproducible=True,
-        **kwargs
+        **checkpoint
     ):
-    checkpoint = {
-        'model': model.state_dict(),
-        'optimizer': optimizer.state_dict()
-    }
-    checkpoint.update({k: v for k, v in kwargs.items() if v is not None})
-    
-    if scheduler is not None:
-        checkpoint.update({'scheduler': scheduler.state_dict()})
+    # checkpoint = {
+    #     'model': model.state_dict(),
+    #     'optimizer': optimizer.state_dict()
+    # }
+    #     
+    # if scheduler is not None:
+    #     checkpoint.update({'scheduler': scheduler.state_dict()})
+
     if reproducible:
         checkpoint.update({
             'random.python': random.getstate(),
@@ -93,25 +94,30 @@ def save(
             'random.cuda': torch.cuda.get_rng_state(),
             'random.cuda_all': torch.cuda.get_rng_state_all(),
         })
+
     torch.save(checkpoint, save_name)
 
 def load(
-        model, optimizer, load_name,
-        scheduler=None,
+        filename,
         reproducible=True,
+        worker_init_fn=True,
+        generator=True,
     ):
     # Load checkpoint
-    checkpoint = torch.load(load_name)
+    if not isinstance(filename, Path):
+        filename = Path(filename)
+    with filename.open('rb') as f:
+        checkpoint = torch.load(f)
 
-    # Load model
-    model.load_state_dict(checkpoint.pop('model'))
-    optimizer.load_state_dict(checkpoint.pop('optimizer'))
+    # # Load model
+    # model.load_state_dict(checkpoint.pop('model'))
+    # optimizer.load_state_dict(checkpoint.pop('optimizer'))
     
-    if scheduler is not None:
-        try:
-            scheduler.load_state_dict(checkpoint.pop('scheduler'))
-        except:
-            print("Warning: scheduler is not loaded.")
+    # if scheduler is not None:
+    #     try:
+    #         scheduler.load_state_dict(checkpoint.pop('scheduler'))
+    #     except:
+    #         print("Warning: scheduler is not loaded.")
 
     if reproducible:
         try:
@@ -120,10 +126,22 @@ def load(
             torch.random.set_rng_state(checkpoint['random.torch'])
             torch.cuda.set_rng_state(checkpoint['random.cuda'])
             torch.cuda.set_rng_state_all(checkpoint['random.cuda_all'])
+
+            if worker_init_fn:
+                def seed_worker(worker_id):
+                    random.setstate(checkpoint['random.python'])
+                    np.random.set_state(checkpoint['random.numpy'])
+                worker_init_fn = seed_worker
+
+            if generator:
+                generator = torch.Generator()
+                generator.set_state(checkpoint['random.torch'].cpu())
         except:
             print("Warning: reproducible is not loaded.")
 
-    if scheduler is not None:
-        return model, optimizer, scheduler, checkpoint
-    else:
-        return model, optimizer, checkpoint
+    if worker_init_fn:
+        checkpoint.update({"worker_init_fn": worker_init_fn})
+    if generator:
+        checkpoint.update({"generator": generator})
+        
+    return checkpoint

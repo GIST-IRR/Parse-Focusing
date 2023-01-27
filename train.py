@@ -29,13 +29,6 @@ def train(args2):
 
     # set device
     args.device = set_device(args.device)
-    # print(f"Set the device with ID {args.device} visible")
-    # args.device = f'cuda:{args.device}' if torch.cuda.is_available() else 'cpu'
-    # torch.cuda.set_device(args.device)
-
-    # fix seed
-    if hasattr(args, 'seed'):
-        reprod.fix_seed(args.seed)
 
     # train
     train_model = command_decorator(Train())
