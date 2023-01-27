@@ -90,7 +90,7 @@ def setup_log_dir(path, parents=True, exist_ok=True):
 
 def create_save_path(args, copy_config=True, copy_code=True):
     # name setup
-    model_name = args.model.model_name
+    model_name = args.model.name
     suffix = \
         f'/{model_name}' \
         + time.strftime("%Y-%m-%d-%H_%M_%S", time.localtime(time.time()))
