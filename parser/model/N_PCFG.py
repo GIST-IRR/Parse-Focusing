@@ -1,73 +1,71 @@
-from re import M
 import numpy as np
 import torch
 from torch import tensor
 import torch.nn as nn
-import torch.nn.functional as F
-import torch.distributions as dist
 
-from parser.modules.attentions import ScaledDotProductAttention
-from ..modules.res import ResLayer
+from ..modules.res import ResLayer, ResLayerNorm
 
 from parser.pcfgs.partition_function import PartitionFunction
 from ..pcfgs.pcfg import PCFG
-from .PCFG_module import PCFG_module
+from .PCFG_module import (
+    PCFG_module,
+    Term_parameterizer,
+    Nonterm_parameterizer,
+    Root_parameterizer
+)
 
 import matplotlib.pyplot as plt
 import math
 import os
-from typing import Dict
 
 
 class NeuralPCFG(PCFG_module):
-    def __init__(self, args, dataset):
+    def __init__(self, args):
         super(NeuralPCFG, self).__init__()
         self.pcfg = PCFG()
         self.part = PartitionFunction()
-        self.device = dataset.device
         self.args = args
 
+        # number of symbols
         self.NT = getattr(args, "NT", 30)
         self.T = getattr(args, "T", 60)
         self.NT_T = self.NT + self.T
-        self.V = len(dataset.word_vocab)
+        self.V = len(args, "V", 10002)
 
         self.s_dim = getattr(args, "s_dim", 256)
+        self.dropout = getattr(args, "dropout", 0.0)
 
-        # embedding vectors for symbols
-        self.term_emb = nn.Parameter(torch.randn(self.T, self.s_dim))
-        self.nonterm_emb = nn.Parameter(torch.randn(self.NT, self.s_dim))
-        self.root_emb = nn.Parameter(torch.randn(1, self.s_dim))
-        # additional embeddings
-        self.word_emb = nn.Embedding(self.V, self.s_dim)
+        self.temperature = getattr(args, "temperature", 1.0)
 
-        # Term FCN
-        self.term_mlp = nn.Sequential(
-            nn.Linear(self.s_dim, self.s_dim),
-            ResLayer(self.s_dim, self.s_dim),
-            ResLayer(self.s_dim, self.s_dim),
-            nn.Linear(self.s_dim, self.V),
+        self.terms = Term_parameterizer(self.s_dim, self.T, self.V)
+        self.nonterms = Nonterm_parameterizer(
+            self.s_dim, self.NT, self.T, self.temperature
         )
+        self.root = Root_parameterizer(self.s_dim, self.NT)
 
-        self.root_mlp = nn.Sequential(
-            nn.Linear(self.s_dim, self.s_dim),
-            ResLayer(self.s_dim, self.s_dim),
-            ResLayer(self.s_dim, self.s_dim),
-            nn.Linear(self.s_dim, self.NT),
-        )
+        # self.terms_uniform = torch.zeros(self.T, self.V).fill_(
+        #     math.log(1.0 / self.V)
+        # ).to(self.device)
 
-        # Rule FCN
-        self.rule_mlp = nn.Linear(self.s_dim, (self.NT_T) ** 2)
         # Partition function
-        self.mode = args.get("mode")
+        self.mode = getattr(args, "mode", "length_unary")
 
         # I find this is important for neural/compound PCFG. if do not use this initialization, the performance would get much worser.
         self._initialize()
+
+    def withoutTerm_parameters(self):
+        for name, param in self.named_parameters():
+            module_name = name.split(".")[0]
+            if module_name != "terms":
+                yield param
 
     def _initialize(self):
         for p in self.parameters():
             if p.dim() > 1:
                 torch.nn.init.xavier_uniform_(p)
+
+    def update_dropout(self, rate):
+        self.apply_dropout = self.init_dropout * rate
 
     def save_rule_heatmap(
         self,
@@ -203,18 +201,46 @@ class NeuralPCFG(PCFG_module):
         b, n = x.shape[:2]
 
         def roots():
-            root_emb = self.root_emb
-            # root_emb = F.dropout(self.root_emb, p=0.5, training=self.training)
-            roots = self.root_mlp(root_emb).log_softmax(-1)
+            # root_emb = self.root_emb
+            # root_emb = F.dropout(
+            #     root_emb, p=self.apply_dropout, training=self.training
+            # )
+            # roots = self.root_mlp(root_emb)
+            # roots = roots.log_softmax(-1)
+            # roots = F.dropout(
+            #     roots,
+            #     p=self.apply_dropout,
+            #     training=self.training
+            # )
+            roots = self.root()
             roots = roots.expand(b, self.NT)
             return roots
 
         def terms():
-            term_emb = self.term_emb
-            # term_emb = F.dropout(self.term_emb, p=0.5, training=self.training)
-            term_prob = self.term_mlp(term_emb).log_softmax(-1)
+            # term_emb = self.term_emb
+            # term_emb = F.dropout(
+            #     term_emb, p=self.apply_dropout, training=self.training
+            # )
+            # term_emb = dim_dropout(
+            #     term_emb,
+            #     p=self.apply_dropout, dim=0, training=self.training
+            # )
+            # term_prob = self.term_mlp(term_emb)
+            # term_prob = term_prob.log_softmax(-1)
+            # term_prob = F.dropout(
+            #     term_prob,
+            #     p=self.apply_dropout,
+            #     training=self.training
+            # )
+            term_prob = self.terms()
+            # term_prob = torch.cat([
+            #     term_prob.unsqueeze(0),
+            #     self.terms_uniform.unsqueeze(0)
+            # ], dim=0)
+            # term_prob = term_prob.logsumexp(0) - math.log(2)
             term_prob = term_prob.unsqueeze(0).expand(b, self.T, self.V)
             # term_prob = self.term_from_unary(input, term_prob)
+            return term_prob
 
             # kmeans distribution
             # term_emb = self.term_emb / torch.linalg.norm(self.term_emb, dim=-1, keepdim=True)
@@ -228,12 +254,25 @@ class NeuralPCFG(PCFG_module):
             # term_prob = self.term_mlp2(term_prob)
             # term_prob = term_prob.log_softmax(-1)
             # term_prob = term_prob.unsqueeze(0).expand(b, self.T, self.V)
-            return term_prob
+            # return term_prob
 
         def rules():
-            nonterm_emb = self.nonterm_emb
-            # nonterm_emb = F.dropout(self.nonterm_emb, p=0.5, training=self.training)
-            rule_prob = self.rule_mlp(nonterm_emb).log_softmax(-1)
+            # nonterm_emb = self.nonterm_emb
+            # nonterm_emb = F.dropout(
+            #     nonterm_emb, p=self.apply_dropout, training=self.training
+            # )
+            # nonterm_emb = dim_dropout(
+            #     nonterm_emb, 
+            #     p=self.apply_dropout, dim=0, training=self.training
+            # )
+            # rule_prob = self.rule_mlp(nonterm_emb)
+            # rule_prob = rule_prob.log_softmax(-1)
+            # rule_prob = F.dropout(
+            #     rule_prob,
+            #     p=self.apply_dropout,
+            #     training=self.training
+            # )
+            rule_prob = self.nonterms()
             rule_prob = rule_prob.reshape(self.NT, self.NT_T, self.NT_T)
             rule_prob = rule_prob.unsqueeze(0).expand(b, *rule_prob.shape)
             return rule_prob
@@ -242,8 +281,8 @@ class NeuralPCFG(PCFG_module):
         # for gradient conflict by using gradients of rules
         if self.training:
             root.retain_grad()
-            rule.retain_grad()
-            unary.retain_grad()
+            # rule.retain_grad()
+            # unary.retain_grad()
             # Masking backward hook
             # def masking(grad):
             #     b, n = x.shape
@@ -262,6 +301,11 @@ class NeuralPCFG(PCFG_module):
             # 'kl': torch.tensor(0, device=self.device)
         }
 
+    def partition_function(self, max_length=200):
+        return self.part(
+            self.rules, lens=max_length, mode='depth', until_converge=True
+        )
+
     def unique_terms(self, terms):
         b, n = terms.shape
         for t in terms:
@@ -274,6 +318,8 @@ class NeuralPCFG(PCFG_module):
         # b = input['word'].shape[0]
         # Calculate rule distributions
         self.rules = self.forward(input)
+        # terms = torch.randint(0, self.V, input["word"].shape, device=self.device)
+        # terms = self.term_from_unary(terms, self.rules["unary"])
         terms = self.term_from_unary(input["word"], self.rules["unary"])
         self.rules["word"] = input["word"]
 
@@ -294,27 +340,25 @@ class NeuralPCFG(PCFG_module):
 
         if partition:
             result = self.pcfg(
-                self.rules, terms, lens=input["seq_len"], topk=2
+                self.rules, terms, lens=input["seq_len"], topk=1
             )
-            sent = self.pcfg(
-                self.rules, terms, lens=input["seq_len"]
-            )
+            # sent = self.pcfg(
+            #     self.rules, terms, lens=input["seq_len"]
+            # )
             self.pf = self.part(
                 self.rules, lens=input["seq_len"], mode=self.mode
             )
             if soft:
-                return (-result["partition"]), sent["partition"]
-            result["partition"] = result["partition"] - sent["partition"]
+                # return (-result["partition"]), sent["partition"]
+                return (-result["partition"]), self.pf
+                # return (-sent["partition"]), self.pf
+            # result["partition"] = result["partition"] - sent["partition"]
+            result["partition"] = result["partition"] - self.pf
         else:
             result = self.pcfg(
-                self.rules, terms, lens=input["seq_len"]
+                self.rules, terms, lens=input["seq_len"],
+                dropout=self.dropout
             )
-
-        # # Attention-based weight
-        # emb_vec = self.word_encoder(input["word"])  # word embedding
-        # emb_vec = emb_vec.mean(1)  # mean pooling
-        # q, k = self.w_q(emb_vec), self.w_k(emb_vec)
-        # output, attn_vec = self.attn(q, k, result["partition"].unsqueeze(1))
 
         return -result["partition"]
         # return -result['partition'] + 0.5 * pf['partition']
@@ -322,24 +366,30 @@ class NeuralPCFG(PCFG_module):
 
     def evaluate(self, input, decode_type, depth=0, **kwargs):
         self.rules = self.forward(input)
-        terms = self.term_from_unary(input["word"], self.rules["unary"])
+        # NPCFG have same rules for all sentences
+        # We need to calculate rules only once
+        b = input["word"].shape[0]
+        rules = {k: v.expand(b, *v.shape[1:]) for k, v in self.rules.items()}
+        terms = self.term_from_unary(input["word"], rules["unary"])
 
         if decode_type == "viterbi":
             result = self.pcfg(
-                self.rules,
+                rules,
                 terms,
                 lens=input["seq_len"],
                 viterbi=True,
                 mbr=False,
+                dropout=self.dropout
             )
             # result = self.pcfg(self.rules, self.rules['unary'], lens=input['seq_len'], viterbi=True, mbr=False)
         elif decode_type == "mbr":
             result = self.pcfg(
-                self.rules,
+                rules,
                 terms,
                 lens=input["seq_len"],
                 viterbi=False,
                 mbr=True,
+                dropout=self.dropout
             )
             # result = self.pcfg(self.rules, self.rules['unary'], lens=input['seq_len'], viterbi=False, mbr=True)
         else:
@@ -347,7 +397,7 @@ class NeuralPCFG(PCFG_module):
 
         if depth > 0:
             result["depth"] = self.part(
-                self.rules, depth, mode="length", depth_output="full"
+                rules, depth, mode="length", depth_output="full"
             )
             result["depth"] = result["depth"].exp()
 
