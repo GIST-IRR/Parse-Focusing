@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from parser.helper.conflict_detector import ConflictDetector
 from torch_support import reproducibility as reprod
 
 from datetime import datetime, timedelta
@@ -9,16 +10,17 @@ import torch
 import numpy as np
 from parser.helper.util import *
 from parser.helper.data_module import DataModule
-from pathlib import Path
 
 from torch.utils.tensorboard import SummaryWriter
-import torch.nn as nn
 
 import math
 import random
 from utils import tensor_to_heatmap
-import gensim
-import pickle
+
+from torch_support.load_model import (
+    get_model_args,
+    get_optimizer_args
+)
 
 class Train(CMD):
 
@@ -29,11 +31,21 @@ class Train(CMD):
 
         # Load dataset
         dataset = DataModule(args)
-        # self.idx2word = np.array(list(dataset.word_vocab.idx2word.values())) 
 
         # Setup model and optimizer
-        self.model = get_model(args.model, dataset)
-        self.optimizer = get_optimizer(args.optimizer, self.model)
+        args.model.update({"V": len(dataset.word_vocab)})
+        self.model = get_model_args(args.model, self.device)
+
+        self.optimizer = get_optimizer_args(
+            args.optimizer, self.model.withoutTerm_parameters()
+        )
+        self.term_optimizer = get_optimizer_args(
+            args.term_optimizer, self.model.terms.parameters()
+        )
+
+        self.conflict_detector = ConflictDetector(
+            dataset.train_dataset, self.model, self.optimizer
+        )
 
         # Load pretrained model
         start_epoch = 1
@@ -64,6 +76,50 @@ class Train(CMD):
             generator.manual_seed(args.seed)   
         dataset.generator = generator
         dataset.worker_init_fn = worker_init_fn
+
+        if hasattr(args, 'pretrained_terms'):
+            # with open(args.pretrained_terms, 'rb') as f:
+            #     checkpoint = torch.load(f, map_location=self.device)
+            with open(args.pretrained_terms, 'rb') as f:
+                terms_checkpoint = torch.load(f, map_location=self.device)
+            # with open(args.pretrained_nonterms, 'rb') as f:
+            #     nonterms_checkpoint = torch.load(f, map_location=self.device)
+
+            # Load pretrained terms
+            # model_dict = {
+            #     '.'.join(k.split('.')[1:]): v
+            #     for k, v in checkpoint['model'].items()
+            #     # if ('terms.' in k and 'nonterms.' not in k) or 'enc_' in k
+            #     if 'nonterms.' in k or 'enc_' in k
+            # }
+            terms_model_dict = {
+                '.'.join(k.split('.')[1:]): v
+                for k, v in terms_checkpoint['model'].items()
+                if ('terms.' in k and 'nonterms.' not in k) or 'enc_' in k
+                # if 'nonterms.' in k or 'enc_' in k
+            }
+            # nonterms_model_dict = {
+            #     '.'.join(k.split('.')[1:]): v
+            #     for k, v in nonterms_checkpoint['model'].items()
+            #     # if ('terms.' in k and 'nonterms.' not in k) or 'enc_' in k
+            #     if 'nonterms.' in k or 'enc_' in k
+            # }
+
+            # self.model.nonterms.load_state_dict(nonterms_model_dict)
+            # for param in self.model.nonterms.parameters():
+            #     param.requires_grad_(False)
+
+            self.model.terms.load_state_dict(terms_model_dict)
+            for param in self.model.terms.parameters():
+                param.requires_grad_(False)
+
+            # for name, param in self.model.named_parameters():
+            #     if 'enc_' in name:
+            #         param.requires_grad_(False)
+
+            if hasattr(self.model, 'enc'):
+                for param in self.model.enc.parameters():
+                    param.requires_grad_(False)
 
         # Load word embeddings
         # self.word_vectors = gensim.models.KeyedVectors.load('word2vec-ptb-std.wordvectors')
@@ -132,14 +188,7 @@ class Train(CMD):
         self.partition = False
         self.total_loss = 0
         self.total_len = 0
-        self.total_metrics = {
-            "kl_term": 0,
-            "kl_nonterm": 0,
-            "cos_term": 0,
-            "cos_nonterm": 0,
-            "log_cos_term": 0,
-            "log_cos_nonterm": 0,
-        }
+        self.total_metrics = {}
         self.dambda = 1
         self.step = 1
 

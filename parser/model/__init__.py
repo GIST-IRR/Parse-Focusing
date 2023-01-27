@@ -1,8 +1,8 @@
-from .C_PCFG import CompoundPCFG
-from .N_PCFG import NeuralPCFG
-from .TN_PCFG import TNPCFG
-from .NBL_PCFG import NeuralBLPCFG
-from .NL_PCFG import NeuralLPCFG
+from .CompoundPCFG import CompoundPCFG
+from .NeuralPCFG import NeuralPCFG
+from .TNPCFG import TNPCFG
+from .NeuralBLPCFG import NeuralBLPCFG
+from .NeuralLPCFG import NeuralLPCFG
 
 
 __all__ = [
