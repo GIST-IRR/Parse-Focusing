@@ -4,11 +4,79 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributions as dist
 
+from ..modules.res import ResLayer, ResLayerNorm
+
 import math
+
+
+class Term_parameterizer(nn.Module):
+    def __init__(self, dim, T, V):
+        super().__init__()
+        self.dim = dim
+        self.T = T
+        self.V = V
+
+        self.term_emb = nn.Parameter(torch.randn(self.T, self.dim))
+
+        self.term_mlp = nn.Sequential(
+            nn.Linear(self.dim, self.dim),
+            ResLayer(self.dim, self.dim),
+            ResLayer(self.dim, self.dim),
+            nn.Linear(self.dim, self.V),
+        )
+
+    def forward(self):
+        term_prob = self.term_mlp(self.term_emb)
+        term_prob = term_prob.log_softmax(-1)
+        return term_prob
+
+class Nonterm_parameterizer(nn.Module):
+    def __init__(self, dim, NT, T, temperature=2.) -> None:
+        super().__init__()
+        self.dim = dim
+        self.NT = NT
+        self.T = T
+        self.NT_T = self.NT + self.T
+
+        self.temperature = temperature
+
+        self.nonterm_emb = nn.Parameter(torch.randn(self.NT, self.dim))
+
+        self.rule_mlp = nn.Linear(self.dim, (self.NT_T) ** 2)
+
+    def forward(self):
+        nonterm_prob = self.rule_mlp(self.nonterm_emb)
+        nonterm_prob = (nonterm_prob/self.temperature).log_softmax(-1)
+        return nonterm_prob
+
+class Root_parameterizer(nn.Module):
+    def __init__(self, dim, NT):
+        super().__init__()
+        self.dim = dim
+        self.NT = NT
+
+        self.root_emb = nn.Parameter(torch.randn(1, self.dim))
+
+        self.root_mlp = nn.Sequential(
+            nn.Linear(self.dim, self.dim),
+            ResLayer(self.dim, self.dim),
+            ResLayer(self.dim, self.dim),
+            nn.Linear(self.dim, self.NT),
+        )
+
+    def forward(self):
+        root_prob = self.root_mlp(self.root_emb)
+        root_prob = root_prob.log_softmax(-1)
+        return root_prob
 
 class PCFG_module(nn.Module):
     def __init__(self) -> None:
         super().__init__()
+
+    def clear_grammar(self):
+        # This function is used when the network is updated
+        # Updated network will have different rules
+        self.rules = None
 
     def batch_dot(self, x, y):
         return (x*y).sum(-1, keepdims=True)
@@ -221,6 +289,8 @@ class PCFG_module(nn.Module):
         def projection(x, y):
             scale = (batch_dot(x, y)/batch_dot(y, y))
             return scale * y, scale
+        loss = loss.mean()
+        z_l = z_l.mean()
         # Get dL_w
         loss.backward(retain_graph=True)
         if target == 'rule':
