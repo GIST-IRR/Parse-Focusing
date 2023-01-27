@@ -30,7 +30,7 @@ class NeuralPCFG(PCFG_module):
         self.NT = getattr(args, "NT", 30)
         self.T = getattr(args, "T", 60)
         self.NT_T = self.NT + self.T
-        self.V = len(args, "V", 10002)
+        self.V = getattr(args, "V", 10002)
 
         self.s_dim = getattr(args, "s_dim", 256)
         self.dropout = getattr(args, "dropout", 0.0)
