@@ -63,8 +63,8 @@ def get_logger(args, log_name='train',path=None):
 
 def create_save_path(args):
     model_name = args.model.model_name
-    suffix = "/{}".format(model_name) + time.strftime("%Y-%m-%d-%H_%M_%S",
-                                                                             time.localtime(time.time()))
+    suffix = "/{}".format(model_name) \
+        + time.strftime("%Y-%m-%d-%H_%M_%S", time.localtime(time.time()))
     from pathlib import Path
     saved_name = Path(args.save_dir).stem + suffix
     args.save_dir = args.save_dir + suffix
