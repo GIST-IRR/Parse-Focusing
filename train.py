@@ -1,15 +1,10 @@
 # -*- coding: utf-8 -*-
 
 import argparse
-import os
 from time import sleep
 from parser.cmds import Evaluate, Train
-import shutil
-import torch
-import traceback
 from pathlib import Path
-from easydict import EasyDict as edict
-import yaml
+
 
 from torch_support import reproducibility as reprod
 from torch_support.train_support import (
@@ -17,9 +12,8 @@ from torch_support.train_support import (
     get_config_from,
     command_decorator
 )
+from torch_support.device_support import set_device
 
-import random
-import numpy as np
 import copy
 
 def train(args2):
@@ -34,9 +28,10 @@ def train(args2):
     setup_log_dir(args.save_dir)
 
     # set device
-    print(f"Set the device with ID {args.device} visible")
-    args.device = f'cuda:{args.device}' if torch.cuda.is_available() else 'cpu'
-    torch.cuda.set_device(args.device)
+    args.device = set_device(args.device)
+    # print(f"Set the device with ID {args.device} visible")
+    # args.device = f'cuda:{args.device}' if torch.cuda.is_available() else 'cpu'
+    # torch.cuda.set_device(args.device)
 
     # fix seed
     if hasattr(args, 'seed'):
