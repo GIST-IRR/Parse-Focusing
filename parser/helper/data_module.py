@@ -167,7 +167,7 @@ class DataModule():
     def train_dataloader(self, max_len=40, min_len=0):
         args = self.hparams.train
         train_dataset = self.train_dataset.drop(lambda x:x['seq_len']<min_len, inplace=False)
-        train_dataset = self.train_dataset.drop(lambda x:x['seq_len']>max_len, inplace=False)
+        train_dataset = train_dataset.drop(lambda x:x['seq_len']>max_len, inplace=False)
         train_sampler = ByLengthSampler(dataset= train_dataset, batch_size=args.batch_size)
         return DataSetIter(dataset=train_dataset, batch_sampler=train_sampler, generator=self.generator, worker_init_fn=self.worker_init_fn)
 
