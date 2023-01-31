@@ -292,23 +292,14 @@ class CompoundPCFG(PCFG_module):
         # mean, lvar = enc(x)
         # z = mean
 
-        # mean, lvar = self.enc(x, seq_len)
-        # z = torch.cat([mean, lvar], -1)
+        mean, lvar = self.enc(x, seq_len)
+        z = torch.cat([mean, lvar], -1)
 
-        root_z, rule_z, term_z = self.attn(x)
+        if not evaluating:
+            z = mean.new(b, mean.size(1)).normal_(0, 1)
+            z = (0.5 * lvar).exp() * z + mean
 
-        # if not evaluating:
-        #     z = mean.new(b, mean.size(1)).normal_(0, 1)
-        #     z = (0.5 * lvar).exp() * z + mean
-
-        root, unary, rule = self.root(root_z), self.terms(term_z), self.nonterms(rule_z)
-        root = root * root_z
-        unary = unary * term_z[:, None, :]
-        rule = rule * rule_z[:, None, :]
-
-        root = root.log_softmax(-1)
-        unary = unary.log_softmax(-1)
-        rule = rule.log_softmax(-1).reshape(b, self.NT, self.NT_T, self.NT_T)
+        root, unary, rule = self.root(z), self.terms(z), self.nonterms(z)
 
         # for gradient conflict by using gradients of rules
         if self.training:
