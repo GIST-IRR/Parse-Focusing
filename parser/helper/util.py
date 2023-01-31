@@ -7,8 +7,6 @@ from parser.model import NeuralPCFG, CompoundPCFG, TNPCFG, NeuralBLPCFG, NeuralL
 
 import torch
 
-from parser.model.C_PCFG_debug import CompoundPCFG_D
-
 
 def get_model(args, device='cpu'):
     if args.model_name == 'NPCFG':
