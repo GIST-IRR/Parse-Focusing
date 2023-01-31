@@ -11,9 +11,10 @@ import numpy as np
 from parser.helper.data_module import DataModule
 
 from torch.utils.tensorboard import SummaryWriter
+import multiprocessing as mp
 
+from pathlib import Path
 import math
-import random
 from utils import tensor_to_heatmap
 
 import torch_support.reproducibility as reproducibility
@@ -30,34 +31,12 @@ class Train(CMD):
     def __call__(self, args):
 
         self.args = args
-        self.device = getattr(args, "device", "cpu")
-
-        # Load dataset
-        dataset = DataModule(args)
-
-        # Setup model and optimizer
-        args.model.update({"V": len(dataset.word_vocab)})
-        self.model = get_model_args(args.model, self.device)
-
-        self.optimizer = get_optimizer_args(
-            args.optimizer, self.model.withoutTerm_parameters()
-        )
-        self.term_optimizer = get_optimizer_args(
-            args.term_optimizer, self.model.terms.parameters()
-        )
-
-        self.conflict_detector = ConflictDetector(
-            dataset.train_dataset, self.model, self.optimizer
-        )
+        self.device = args.device
 
         # Load pretrained model
         start_epoch = 1
         if hasattr(args, 'pretrained_model'):
             checkpoint = reproducibility.load(args.pretrained_model)
-            # Load model
-            self.model.load_state_dict(checkpoint['model'])
-            # Load optimizer
-            self.optimizer.load_state_dict(checkpoint['optimizer'])
             # Load meta data
             start_epoch = checkpoint['epoch'] + 1
             # Load random state
@@ -65,12 +44,39 @@ class Train(CMD):
             generator = checkpoint['generator']
         else:
             if hasattr(args, 'seed'):
-                worker_init_fn, generator = reproducibility.fix_seed(
-                    args.seed
-                )
-        
-        dataset.generator = generator
-        dataset.worker_init_fn = worker_init_fn
+                worker_init_fn, generator = \
+                    reproducibility.fix_seed(args.seed)
+
+        # Load dataset
+        dataset = DataModule(
+            args,
+            generator=generator,
+            worker_init_fn=worker_init_fn
+        )
+        # Update vocab size
+        args.model.update({"V": len(dataset.word_vocab)})
+
+        # Setup model
+        self.model = get_model_args(args.model, self.device)
+        # Load pretrained model
+        if hasattr(args, 'pretrained_model'):
+            self.model.load_state_dict(checkpoint['model'])
+
+        # Setup optimizer
+        self.optimizer = get_optimizer_args(
+            args.optimizer, self.model.withoutTerm_parameters()
+        )
+        self.term_optimizer = get_optimizer_args(
+            args.term_optimizer, self.model.terms.parameters()
+        )
+        # Load pretrained optimizer
+        if hasattr(args, 'pretrained_model'):
+            self.optimizer.load_state_dict(checkpoint['optimizer'])
+
+        # Setup logger
+        self.conflict_detector = ConflictDetector(
+            dataset.train_dataset, self.model, self.optimizer
+        )
 
         if hasattr(args, 'pretrained_terms'):
             # with open(args.pretrained_terms, 'rb') as f:
@@ -198,7 +204,9 @@ class Train(CMD):
                     self.partition = True
 
             # partition switch for each epoch
-            self.writer.add_scalar('train/norm_switch', 1 if self.partition else 0, epoch)
+            # self.writer.add_scalar(
+            #     'train/norm_switch', 1 if self.partition else 0, epoch
+            # )
 
             # curriculum learning. Used in compound PCFG.
             if train_arg.curriculum:
@@ -226,13 +234,21 @@ class Train(CMD):
             start = datetime.now()
             self.train(train_loader_autodevice)
 
-            heatmap_dir = os.path.join(self.args.save_dir, 'heatmap')
+            # Visualization
+            heatmap_dir = Path(self.args.save_dir) / 'heatmap'
             for k in self.total_metrics.keys():
-                tensor_to_heatmap(
-                    self.model.metrics[k],
-                    dirname=heatmap_dir,
-                    filename=f'{k}_{self.iter}.png'
-                )
+                mp.Process(
+                    target=tensor_to_heatmap,
+                    args=(self.model.metrics[k], ),
+                    kwargs={
+                        "dirname": heatmap_dir,
+                        "filename": f'{k}_{self.iter}.png'
+                    })
+                # tensor_to_heatmap(
+                #     self.model.metrics[k],
+                #     dirname=heatmap_dir,
+                #     filename=f'{k}_{self.iter}.png'
+                # )
             log.info(f"Epoch {epoch} / {train_arg.max_epoch}:")
 
             # Evaluation
@@ -248,55 +264,48 @@ class Train(CMD):
             log.info(f"{'dev ll:':6}   {dev_ll}")
 
             # F1 score for each epoch
-            self.writer.add_scalar('valid/Likelihood', dev_ll.score, epoch)
-            self.writer.add_scalar('valid/F1', dev_f1_metric.sentence_uf1, epoch)
-            self.writer.add_scalar('valid/F1_left', dev_left_metric.sentence_uf1, epoch)
-            self.writer.add_scalar('valid/F1_right', dev_right_metric.sentence_uf1, epoch)
-            self.writer.add_scalar('valid/Exact', dev_f1_metric.sentence_ex, epoch)
-            self.writer.add_scalar('valid/Exact_left', dev_left_metric.sentence_ex, epoch)
-            self.writer.add_scalar('valid/Exact_right', dev_right_metric.sentence_ex, epoch)
+            tag = "valid"
+            metric_list = {
+                "Likelihood": dev_ll.score,
+                "F1": dev_f1_metric.sentence_uf1,
+                "F1_left": dev_left_metric.sentence_uf1,
+                "F1_right": dev_right_metric.sentence_uf1,
+                "Exact": dev_f1_metric.sentence_ex,
+                "Exact_left": dev_left_metric.sentence_ex,
+                "Exact_right": dev_right_metric.sentence_ex,
+            }
+            for k, v in metric_list.items():
+                self.writer.add_scalar(f"{tag}/{k}", v, epoch)
+
             # partition function distribution
             for i, pf in enumerate(self.pf_sum):
                 self.writer.add_scalar(f'valid/marginal_{self.model.mode}', pf/dev_f1_metric.n, i)
-            # # F1 score for each depth
-            # for k, v in dev_f1_metric.sentence_uf1_d.items():
-            #     self.writer.add_scalar('valid/f1_depth', v, k)
-            # F1 score for each length
-            for k, v in dev_f1_metric.sentence_uf1_l.items():
-                self.writer.add_scalar('valid/f1_length', v, k)
 
-            # # Exact for each depth, length
-            # for k, v in dev_f1_metric.sentence_ex_d.items():
-            #     self.writer.add_scalar('valid/Ex_depth', v, k)
-            for k, v in dev_f1_metric.sentence_ex_l.items():
-                self.writer.add_scalar('valid/Ex_length', v, k)
-                
-            # # F1 score for each depth
-            # for k, v in dev_left_metric.sentence_uf1_d.items():
-            #     self.writer.add_scalar('valid/f1_left_depth', v, k)
-            # # F1 score for each length
-            # for k, v in dev_left_metric.sentence_ex_d.items():
-            #     self.writer.add_scalar('valid/Ex_left_depth', v, k)
-            for k, v in dev_left_metric.sentence_uf1_l.items():
-                self.writer.add_scalar('valid/f1_left_length', v, k)
-            for k, v in dev_left_metric.sentence_ex_l.items():
-                self.writer.add_scalar('valid/Ex_left_length', v, k)
+            metric_dict = {
+                "f1_length": dev_f1_metric.sentence_uf1_l,
+                "Ex_length": dev_f1_metric.sentence_ex_l,
+                "f1_left_length": dev_left_metric.sentence_uf1_l,
+                "Ex_left_length": dev_left_metric.sentence_ex_l,
+                "f1_right_length": dev_right_metric.sentence_uf1_l,
+                "Ex_right_length": dev_right_metric.sentence_ex_l,
+                # "f1_depth": dev_f1_metric.sentence_uf1_d,
+                # "Ex_depth": dev_f1_metric.sentence_ex_d,
+                # "f1_left_depth": dev_left_metric.sentence_uf1_d,
+                # "Ex_left_depth": dev_left_metric.sentence_ex_d,
+                # "f1_right_depth": dev_right_metric.sentence_uf1_d,
+                # "Ex_right_depth": dev_right_metric.sentence_ex_d,
+            }
 
-            # # F1 score for each depth
-            # for k, v in dev_right_metric.sentence_uf1_d.items():
-            #     self.writer.add_scalar('valid/f1_right_depth', v, k)
-            # # F1 score for each length
-            # for k, v in dev_right_metric.sentence_ex_d.items():
-            #     self.writer.add_scalar('valid/Ex_right_depth', v, k)
-            for k, v in dev_right_metric.sentence_uf1_l.items():
-                self.writer.add_scalar('valid/f1_right_length', v, k)
-            for k, v in dev_right_metric.sentence_ex_l.items():
-                self.writer.add_scalar('valid/Ex_right_length', v, k)
+            for k, v in metric_dict.items():
+                for i, val in v.items():
+                    self.writer.add_scalar(f"{tag}/{k}", val, i)
 
             # distribution of estimated span depth
             self.estimated_depth = dict(sorted(self.estimated_depth.items()))
             for k, v in self.estimated_depth.items():
-                self.writer.add_scalar('valid/estimated_depth', v/dev_f1_metric.n, k)
+                self.writer.add_scalar(
+                    'valid/estimated_depth', v/dev_f1_metric.n, k
+                )
 
             t = datetime.now() - start
 
