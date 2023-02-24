@@ -11,6 +11,7 @@ class PartitionFunction(nn.Module):
         mode: str = None,
         span: int = 0,
         with_root_term: bool = False,
+        until_converge: bool = False,
     ):
         rule = rules["rule"]
         root = rules["root"]
@@ -56,6 +57,10 @@ class PartitionFunction(nn.Module):
                     x[4].copy_(contract(X_Y_Z, st, zp))
                 x = x.logsumexp(0)
             t[:, d].copy_(x)
+
+            if until_converge and (
+                t[:, :d].logsumexp(1) == t[:, :d+1].logsumexp(1)).all():
+                break
 
         if mode == "full":
             r = (root.unsqueeze(1) + t).logsumexp(2)
@@ -241,11 +246,11 @@ class PartitionFunction(nn.Module):
             logZ = contract(s[torch.arange(batch), lens] + root)
         return logZ
 
-    def forward(self, rules, lens, mode="length", depth_output=None, span=0):
+    def forward(self, rules, lens, mode="length", depth_output=None, span=0, until_converge=False):
         if type(lens) == int:
             lens = rules["root"].new_tensor([lens]).long()
         if mode == "depth":
-            return self.depth_partition_function(rules, lens, depth_output, span)
+            return self.depth_partition_function(rules, lens, depth_output, span, until_converge=until_converge)
         elif mode == "length":
             return self.length_partition_function(rules, lens, depth_output)
         elif mode == "length_unary":
