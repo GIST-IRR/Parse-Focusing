@@ -147,7 +147,17 @@ def tensor_to_heatmap(x, batch=True, dirname='heatmap', filename='cos_sim.png', 
     plt.close()
     return fig
 
-def save_rule_heatmap(rules, dirname='heatmap', filename='rules_prop.png', grad=False, root=True, rule=True, unary=True):
+def save_rule_heatmap(
+    rules,
+    dirname='heatmap',
+    filename='rules_prop.png',
+    grad=False,
+    root=True,
+    rule=True,
+    unary=True,
+    abs=False,
+    local=False
+):
     if grad:
         root_data = rules['root'].grad[0].detach().cpu()
         rule_data = rules['rule'].grad[0].detach().cpu()
@@ -174,10 +184,34 @@ def save_rule_heatmap(rules, dirname='heatmap', filename='rules_prop.png', grad=
 
     # min max in local
     if rule:
-        vmin = rule_data.min()
-        vmax = rule_data.max()
+        # absolute min max
+        if abs:
+            vmin = -100.0
+            vmax = 0.0
+            fig, axes = plt.subplots(nrows=5, ncols=6)
+            for df, ax in zip(rule_dfs, axes.flat):
+                pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
+                fig.colorbar(pc, ax=ax)
+            path = os.path.join(dirname, f"global_{filename}")
+            plt.savefig(path, bbox_inches="tight")
+            plt.close()
+        
+        # min max in local
+        if local:
+            vmin = rules.min()
+            vmax = rules.max()
+            fig, axes = plt.subplots(nrows=5, ncols=6)
+            for df, ax in zip(rule_dfs, axes.flat):
+                pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
+                fig.colorbar(pc, ax=ax)
+            path = os.path.join(dirname, f"local_{filename}")
+            plt.savefig(path, bbox_inches="tight")
+            plt.close()
+
         fig, axes = plt.subplots(nrows=5, ncols=6, figsize=(70, 50))
         for df, ax in zip(rule_dfs, axes.flat):
+            vmin = df.min()
+            vmax = df.max()
             pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
             fig.colorbar(pc, ax=ax)
         path = os.path.join(dirname, f'rule_{filename}')
