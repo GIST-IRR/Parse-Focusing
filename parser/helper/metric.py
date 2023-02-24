@@ -112,7 +112,7 @@ class UF1(Metric):
                 if len(pred) == 0:
                     prec = 1.
             f1 = 2 * prec * reca / (prec + reca + 1e-8)
-            ex = 1 if (1 - f1) < 1e-8 else 0
+            ex = 1 if (1 - f1) < (self.eps*2) else 0
             self.f1 += f1
             self.ex += ex
             self.n += 1
