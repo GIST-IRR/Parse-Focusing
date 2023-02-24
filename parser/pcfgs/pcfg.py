@@ -5,11 +5,15 @@ from parser.pcfgs.fn import (
     checkpoint,
 )
 import torch
+import torch.nn.functional as F
 
 
 class PCFG(PCFG_base):
     @torch.enable_grad()
-    def _inside(self, rules, terms, lens, viterbi=False, mbr=False):
+    def _inside(
+        self, rules, terms, lens, 
+        viterbi=False, mbr=False, dropout=0.0
+    ):
         # terms = rules['unary']
         rule = rules["rule"]
         root = rules["root"]
@@ -42,6 +46,9 @@ class PCFG(PCFG_base):
                 return x.max(dim)[0]
             else:
                 return x.logsumexp(dim)
+                # orig_sum = x.logsumexp(dim, keepdims=True)
+                # prop = (x/2).log_softmax(dim)
+                # return (prop + orig_sum).logsumexp(dim)
 
         # nonterminals: X Y Z
         # terminals: x y z
@@ -51,6 +58,10 @@ class PCFG(PCFG_base):
             n = y.shape[1]
             b_n_yz = (y + z).reshape(batch, n, T * T)
             b_n_x = contract(b_n_yz.unsqueeze(-2) + rule.unsqueeze(1))
+
+            # b_n_x = F.dropout(b_n_x, p=dropout, training=self.training)
+            # b_n_x = b_n_x * dropout if self.training else b_n_x
+            # b_n_x = torch.where(b_n_x < 0, b_n_x, -1e+9)
             return b_n_x
 
         @checkpoint
@@ -62,6 +73,10 @@ class PCFG(PCFG_base):
                 dim=2,
             ).reshape(batch, n, -1)
             b_n_x = contract(b_n_yz.unsqueeze(2) + rule.unsqueeze(1))
+
+            # b_n_x = F.dropout(b_n_x, p=dropout, training=self.training)
+            # b_n_x = b_n_x * dropout if self.training else b_n_x
+            # b_n_x = torch.where(b_n_x < 0, b_n_x, -1e+9)
             return b_n_x
 
         @checkpoint
@@ -70,6 +85,10 @@ class PCFG(PCFG_base):
             Y = Y[:, :, -1, :, None]
             b_n_yz = (Y + z).reshape(batch, n, NT * T)
             b_n_x = contract(b_n_yz.unsqueeze(-2) + rule.unsqueeze(1))
+
+            # b_n_x = F.dropout(b_n_x, p=dropout, training=self.training)
+            # b_n_x = b_n_x * dropout if self.training else b_n_x
+            # b_n_x = torch.where(b_n_x < 0, b_n_x, -1e+9)
             return b_n_x
 
         @checkpoint
@@ -78,6 +97,10 @@ class PCFG(PCFG_base):
             Z = Z[:, :, 0, None, :]
             b_n_yz = (y + Z).reshape(batch, n, NT * T)
             b_n_x = contract(b_n_yz.unsqueeze(-2) + rule.unsqueeze(1))
+
+            # b_n_x = F.dropout(b_n_x, p=dropout, training=self.training)
+            # b_n_x = b_n_x * dropout if self.training else b_n_x
+            # b_n_x = torch.where(b_n_x < 0, b_n_x, -1e+9)
             return b_n_x
 
         terms = terms + tag_indicator  # to indicate viterbi tag

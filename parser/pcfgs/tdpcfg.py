@@ -80,8 +80,8 @@ class TDPCFG(PCFG_base):
         span_indicator = unary.new_zeros(batch, N, N, NT).requires_grad_(mbr)
         tag_indicator = unary.new_zeros(batch, N-1, T).requires_grad_(mbr)
 
-        left_term = transform_left_t(unary,L_term)
-        right_term = transform_right_t(unary,R_term)
+        left_term = transform_left_t(unary, L_term)
+        right_term = transform_right_t(unary, R_term)
 
         s = unary.new_zeros(batch, N, N, NT).fill_(-1e9)
         # for caching V^{T}s_{i,k} and W^{T}s_{k+1,j} as described in paper to decrease complexities.
