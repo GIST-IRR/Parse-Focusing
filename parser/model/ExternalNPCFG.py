@@ -1,24 +1,21 @@
+import sys
+
 import numpy as np
 import torch
 import torch.nn as nn
 
 from parser.pcfgs.partition_function import PartitionFunction
 from ..pcfgs.pcfg import PCFG
-from .PCFG_module import (
-    PCFG_module,
-    Term_parameterizer,
-    Nonterm_parameterizer,
-    Root_parameterizer
-)
+from .PCFG_module import PCFG_module
 
 import matplotlib.pyplot as plt
 import math
 import os
 
 
-class NeuralPCFG(PCFG_module):
+class ExternalNPCFG(PCFG_module):
     def __init__(self, args):
-        super(NeuralPCFG, self).__init__()
+        super(ExternalNPCFG, self).__init__()
         self.pcfg = PCFG()
         self.part = PartitionFunction()
         self.args = args
@@ -35,21 +32,54 @@ class NeuralPCFG(PCFG_module):
         self.temperature = getattr(args, "temperature", 1.0)
         self.smooth = getattr(args, "smooth", 0.0)
 
-        self.terms = Term_parameterizer(
-            self.s_dim, self.T, self.V
-        )
-        self.nonterms = Nonterm_parameterizer(
-            self.s_dim, self.NT, self.T, self.temperature
-        )
-        self.root = Root_parameterizer(
-            self.s_dim, self.NT
-        )
+        self.lang = getattr(args, "lang", "english")
+        self.factor = getattr(args, "factor", "right")
 
         # Partition function
         self.mode = getattr(args, "mode", "length_unary")
 
         # I find this is important for neural/compound PCFG. if do not use this initialization, the performance would get much worser.
         self._initialize()
+
+        terms_checkpoint = torch.load(
+            f'weights/{self.lang}_xbar_{self.factor}_term_pd.pt')
+
+        # terms_checkpoint = self.lognorm_strict(terms_checkpoint)
+        terms_checkpoint = self.lognorm_safe(terms_checkpoint)
+
+        self.terms = torch.nn.Parameter(terms_checkpoint)
+        # self.terms.requires_grad_(False)
+
+        nonterms_checkpoint = torch.load(
+            f'weights/{self.lang}_xbar_{self.factor}_rule_pd.pt')
+        nonterms_shape = nonterms_checkpoint.shape
+        nonterms_checkpoint = nonterms_checkpoint.reshape(
+            nonterms_shape[0], nonterms_shape[1] * nonterms_shape[2]
+        )
+
+        # nonterms_checkpoint = self.lognorm_strict(nonterms_checkpoint)
+        nonterms_checkpoint = self.lognorm_safe(nonterms_checkpoint)
+
+        self.nonterms = torch.nn.Parameter(nonterms_checkpoint)
+        # self.nonterms.requires_grad_(False)
+
+        root_checkpoint = torch.load(
+            f'weights/{self.lang}_xbar_{self.factor}_root_pd.pt')
+
+        # root_checkpoint = self.lognorm_strict(root_checkpoint)
+        root_checkpoint = self.lognorm_safe(root_checkpoint)
+
+        self.root = torch.nn.Parameter(root_checkpoint)
+        # self.root.requires_grad_(False)
+
+    def lognorm_safe(self, x, eps=1e-9):
+        x = x / x.sum(-1, keepdims=True) + eps
+        return x.log()
+
+    def lognorm_strict(self, x, eps=-1e9):
+        x = (x / x.sum(-1, keepdims=True)).log()
+        x = x.where(~x.isinf(), torch.full_like(x, eps))
+        return x
 
     def withoutTerm_parameters(self):
         for name, param in self.named_parameters():
@@ -64,55 +94,6 @@ class NeuralPCFG(PCFG_module):
 
     def update_dropout(self, rate):
         self.apply_dropout = self.init_dropout * rate
-
-    def save_rule_heatmap(
-        self,
-        rules=None,
-        dirname="heatmap",
-        filename="rules_prop.png",
-        abs=True,
-        local=True,
-        symbol=True,
-    ):
-        if rules is None:
-            rules = self.rules["rule"][0]
-        plt.rcParams["figure.figsize"] = (70, 50)
-        dfs = [r.clone().detach().cpu().numpy() for r in rules]
-        # min max in seed
-        if local:
-            vmin = rules.min()
-            vmax = rules.max()
-            fig, axes = plt.subplots(nrows=5, ncols=6)
-            for df, ax in zip(dfs, axes.flat):
-                pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
-                fig.colorbar(pc, ax=ax)
-            path = os.path.join(dirname, f"local_{filename}")
-            plt.savefig(path, bbox_inches="tight")
-            plt.close()
-
-        # min max in local
-        if symbol:
-            fig, axes = plt.subplots(nrows=5, ncols=6)
-            for df, ax in zip(dfs, axes.flat):
-                vmin = df.min()
-                vmax = df.max()
-                pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
-                fig.colorbar(pc, ax=ax)
-            path = os.path.join(dirname, f"symbol_{filename}")
-            plt.savefig(path, bbox_inches="tight")
-            plt.close()
-
-        # absolute min max
-        if abs:
-            vmin = -100.0
-            vmax = 0.0
-            fig, axes = plt.subplots(nrows=5, ncols=6)
-            for df, ax in zip(dfs, axes.flat):
-                pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
-                fig.colorbar(pc, ax=ax)
-            path = os.path.join(dirname, f"global_{filename}")
-            plt.savefig(path, bbox_inches="tight")
-            plt.close()
 
     def entropy(self, key, batch=False, probs=False, reduce="none"):
         assert key == "root" or key == "rule" or key == "unary"
@@ -198,52 +179,32 @@ class NeuralPCFG(PCFG_module):
         x = input["word"]
         b, n = x.shape[:2]
 
-        def roots():
-            roots = self.root()
-            roots = roots.expand(b, self.NT)
-            return roots
+        # root, unary, rule = roots(), terms(), rules()
+        
+        # root, unary, rule = \
+        #     self.root.log_softmax(-1).expand(b, -1), \
+        #     self.terms.log_softmax(-1).expand(b, -1, -1), \
+        #     self.nonterms.log_softmax(-1).reshape(
+        #         self.NT, self.NT_T, self.NT_T).expand(b, -1, -1, -1)
 
-        def terms():
-            term_prob = self.terms()
-            term_prob = term_prob.expand(b, *term_prob.shape)
-            return term_prob
-
-            # kmeans distribution
-            # term_emb = self.term_emb / torch.linalg.norm(self.term_emb, dim=-1, keepdim=True)
-            # word_emb = self.word_emb / torch.linalg.norm(self.word_emb, dim=-1, keepdim=True)
-            # term_prob = torch.matmul(term_emb, word_emb.T) - 1
-            # term_prob = term_prob.log_softmax(-1)
-            # term_prob = term_prob.unsqueeze(0).expand(b, self.T, self.V)
-
-            # word2vec distribution
-            # term_prob = self.term_mlp(self.term_emb)
-            # term_prob = self.term_mlp2(term_prob)
-            # term_prob = term_prob.log_softmax(-1)
-            # term_prob = term_prob.unsqueeze(0).expand(b, self.T, self.V)
-            # return term_prob
-
-        def rules():
-            rule_prob = self.nonterms()
-            rule_prob = rule_prob.reshape(self.NT, self.NT_T, self.NT_T)
-            rule_prob = rule_prob.expand(b, *rule_prob.shape)
-            return rule_prob
-
-        root, unary, rule = roots(), terms(), rules()
-        # root, unary, rule = roots(), self.terms.expand(b, -1, -1), rules()
+        root, rule, unary = \
+            self.root.expand(b, -1), \
+            self.nonterms.reshape(
+                self.NT, self.NT_T, self.NT_T).expand(b, -1, -1, -1), \
+            self.terms.expand(b, -1, -1)
+        
+        # root, rule, unary = \
+        #     self.lognorm_safe(self.root).expand(b, -1), \
+        #     self.lognorm_safe(self.nonterms).reshape(
+        #         self.NT, self.NT_T, self.NT_T).expand(b, -1, -1, -1), \
+        #     self.lognorm_safe(self.terms).expand(b, -1, -1)
+        
         # for gradient conflict by using gradients of rules
         if self.training:
-            root.retain_grad()
-            rule.retain_grad()
+            pass
+            # root.retain_grad()
+            # rule.retain_grad()
             # unary.retain_grad()
-            # # Masking backward hook
-            # def masking(grad):
-            #     # b, n = x.shape
-            #     # indices = x[..., None].expand(-1, -1, self.T).permute(0, 2, 1)
-            #     # mask = indices.new_zeros(b, self.T, self.V).scatter_(2, indices, 1.)
-            #     print("in the hook!")
-            #     return grad * 2
-
-            # unary.register_hook(masking)
 
         self.clear_metrics() # clear metrics becuase we have new rules
 
@@ -254,61 +215,24 @@ class NeuralPCFG(PCFG_module):
             # 'kl': torch.tensor(0, device=self.device)
         }
 
-    def partition_function(self, max_length=200):
-        return self.part(
-            self.rules, lens=max_length, mode='depth', until_converge=True
-        )
-
-    def unique_terms(self, terms):
-        b, n = terms.shape
-        for t in terms:
-            output, inverse, counts = torch.unique(
-                t, return_inverse=True, return_counts=True
-            )
-            duplicated_index = counts.where(counts > 1)
-
     def loss(self, input, partition=False, soft=False):
-        # b = input['word'].shape[0]
         # Calculate rule distributions
         self.rules = self.forward(input)
-        # terms = torch.randint(0, self.V, input["word"].shape, device=self.device)
-        # terms = self.term_from_unary(terms, self.rules["unary"])
         terms = self.term_from_unary(
             input["word"], self.rules["unary"],
             smooth=self.smooth
         )
         self.rules["word"] = input["word"]
 
-        # Calculate inside algorithm
-        # result = self.pcfg(
-        #     self.rules, terms, lens=input["seq_len"]
-        # )
-        # result = self.pcfg(
-        #     self.rules, terms, lens=input["seq_len"], topk=4
-        # )
-        # pf = self.pcfg(
-        #     self.rules, terms, lens=input["seq_len"]
-        # )
-        # result = self.pcfg(self.rules, self.rules['unary'], lens=input['seq_len'])
-
-        # log_cos_term = self.cos_sim_max(self.rules['log_cos_term'])
-        # log_cos_nonterm = self.cos_sim_max(self.rules['log_cos_nonterm'])
-
         if partition:
             result = self.pcfg(
                 self.rules, terms, lens=input["seq_len"], topk=1
             )
-            # sent = self.pcfg(
-            #     self.rules, terms, lens=input["seq_len"]
-            # )
             self.pf = self.part(
                 self.rules, lens=input["seq_len"], mode=self.mode
             )
             if soft:
-                # return (-result["partition"]), sent["partition"]
                 return (-result["partition"]), self.pf
-                # return (-sent["partition"]), self.pf
-            # result["partition"] = result["partition"] - sent["partition"]
             result["partition"] = result["partition"] - self.pf
         else:
             result = self.pcfg(
@@ -317,8 +241,6 @@ class NeuralPCFG(PCFG_module):
             )
 
         return -result["partition"]
-        # return -result['partition'] + 0.5 * pf['partition']
-        # return -output.squeeze(1)
 
     def evaluate(self, input, decode_type, depth=0, **kwargs):
         self.rules = self.forward(input)

@@ -3,8 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from parser.model.PCFG_module import PCFG_module
 from parser.modules.res import ResLayer
-from parser.modules.attentions import ScaledDotProductAttention
-from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
+from torch.nn.modules.activation import MultiheadAttention
 
 from parser.pcfgs.partition_function import PartitionFunction
 from ..pcfgs.pcfg import PCFG
@@ -20,7 +19,7 @@ class Root_parameterizer(nn.Module):
         self.root_emb = nn.Parameter(torch.randn(1, self.s_dim))
 
         self.root_mlp = nn.Sequential(
-            nn.Linear(self.s_dim + self.z_dim, self.s_dim),
+            nn.Linear(self.s_dim, self.s_dim),
             ResLayer(self.s_dim, self.s_dim),
             ResLayer(self.s_dim, self.s_dim),
             nn.Linear(self.s_dim, self.NT),
@@ -29,40 +28,8 @@ class Root_parameterizer(nn.Module):
     def forward(self, z):
         b = z.shape[0]
         root_emb = self.root_emb.expand(b, self.s_dim)
-        root_emb = torch.cat([root_emb, z], -1)
-
         root_prob = self.root_mlp(root_emb).log_softmax(-1)
-        # root_prob = self.root_mlp(root_emb)
-        # root_prob = torch.matmul(root_prob, z).log_softmax(-1)
         return root_prob
-
-class Term_parameterizer(nn.Module):
-    def __init__(self, s_dim, z_dim, T, V) -> None:
-        super().__init__()
-        self.s_dim = s_dim
-        self.z_dim = z_dim
-        self.T = T
-        self.V = V
-
-        self.term_emb = nn.Parameter(torch.randn(self.T, self.s_dim))
-
-        self.term_mlp = nn.Sequential(
-            nn.Linear(self.s_dim + self.z_dim, self.s_dim),
-            ResLayer(self.s_dim, self.s_dim),
-            ResLayer(self.s_dim, self.s_dim),
-            nn.Linear(self.s_dim, self.V),
-        )
-
-    def forward(self, z):
-        b = z.shape[0]
-        term_emb = self.term_emb.unsqueeze(0).expand(b, -1, -1)
-        # z_expand = z.unsqueeze(1).expand(-1, self.T, -1)
-        # term_emb = torch.cat([term_emb, z_expand], -1)
-        # term_emb = term_emb * z.unsqueeze(1)
-
-        # term_prob = self.term_mlp(term_emb).log_softmax(-1)
-        term_prob = self.term_mlp(term_emb)
-        return term_prob
 
 class Nonterm_parameterizer(nn.Module):
     def __init__(self, s_dim, z_dim, NT, T) -> None:
@@ -75,7 +42,6 @@ class Nonterm_parameterizer(nn.Module):
 
         self.nonterm_emb = nn.Parameter(torch.randn(self.NT, self.s_dim))
 
-        # self.nonterm_mlp = nn.Linear(self.s_dim + self.z_dim, (self.NT_T) ** 2)
         self.nonterm_mlp = nn.Linear(self.s_dim, (self.NT_T) ** 2)
 
     def forward(self, z):
@@ -83,54 +49,125 @@ class Nonterm_parameterizer(nn.Module):
         nonterm_emb = self.nonterm_emb.unsqueeze(0).expand(
             b, self.NT, self.s_dim
         )
-        # z_expand = z.unsqueeze(1).expand(b, self.NT, self.z_dim)
-        # nonterm_emb = torch.cat([nonterm_emb, z_expand], -1)
-        # nonterm_emb = nonterm_emb * z.unsqueeze(1)
+        rule_prob = self.nonterm_mlp(nonterm_emb).log_softmax(-1)
+        return rule_prob.reshape(b, self.NT, self.NT_T, self.NT_T)
 
-        # rule_prob = self.nonterm_mlp(nonterm_emb).log_softmax(-1)
-        rule_prob = self.nonterm_mlp(nonterm_emb)
-        # rule_prob = rule_prob.reshape(b, self.NT, self.NT_T, self.NT_T)
-        return rule_prob
-
-class Encoder(nn.Module):
-    def __init__(self, V, w_dim, h_dim, z_dim) -> None:
+class Term_parameterizer(nn.Module):
+    def __init__(self, term_emb, s_dim, z_dim, T, V) -> None:
         super().__init__()
+        self.s_dim = s_dim
+        self.z_dim = z_dim
+        self.T = T
+        self.V = V
+
+        # self.term_emb = nn.Parameter(torch.randn(self.T, self.s_dim))
+        self.term_emb = term_emb
+
+        self.term_mlp = nn.Sequential(
+            # nn.Linear(self.s_dim+self.z_dim, self.s_dim),
+            nn.Linear(self.s_dim, self.s_dim),
+            ResLayer(self.s_dim, self.s_dim),
+            ResLayer(self.s_dim, self.s_dim),
+            nn.Linear(self.s_dim, self.V),
+        )
+
+    def forward(self, z):
+        b = z.shape[0]
+        # term_emb = self.term_emb.unsqueeze(0).expand(b, -1, -1)
+        # z = z.expand(-1, self.T, -1)
+        # term_emb = torch.cat([term_emb, z], -1)
+        # term_prob = self.term_mlp(term_emb)
+        term_prob = self.term_mlp(z).log_softmax(-1)
+        return term_prob
+
+class EncodingLayer(nn.Module):
+    def __init__(
+        self, term_emb, V, w_dim, NT, T, dim_feedforward=2048, num_heads=8
+    ) -> None:
+        super().__init__()
+        self.term_emb = term_emb
+        self.s_dim = term_emb.shape[1]
         self.V = V
         self.w_dim = w_dim
-        self.h_dim = h_dim
-        self.z_dim = z_dim
+        NT_T = NT + T
 
-        self.enc_emb = nn.Embedding(self.V, self.w_dim)
+        self.w_emb = nn.Embedding(self.V, self.w_dim)
+        self.self_attn = MultiheadAttention(
+            self.w_dim, num_heads,
+            batch_first=True
+        )
+        self.norm = nn.LayerNorm(self.w_dim)
 
-        self.enc_rnn = nn.LSTM(
-            self.w_dim,
-            self.h_dim,
-            bidirectional=True,
-            num_layers=1,
+        # self.term = nn.Sequential(
+        #     nn.Linear(self.w_dim, dim_feedforward),
+        #     nn.ReLU(),
+        #     # nn.Dropout(0.1),
+        #     nn.Linear(dim_feedforward, self.V),
+        # )
+        # self.term_norm = nn.LayerNorm(self.V)
+
+        self.term = nn.Sequential(
+            nn.Linear(self.w_dim, dim_feedforward),
+            nn.ReLU(),
+            # nn.Dropout(0.1),
+            nn.Linear(dim_feedforward, self.w_dim),
+        )
+        self.term_norm = nn.LayerNorm(self.w_dim)
+
+        self.term_self_attn = MultiheadAttention(
+            self.s_dim, num_heads,
+            batch_first=True
+        )
+        self.term_attn_norm = nn.LayerNorm(self.s_dim)
+
+        self.cross_attn = MultiheadAttention(
+            self.s_dim, num_heads,
             batch_first=True,
+            kdim=self.w_dim, vdim=self.w_dim,
         )
-
-        self.enc_out = nn.Linear(self.h_dim * 2, self.z_dim * 2)
-
-    def forward(self, x, len):
-        x_embbed = self.enc_emb(x)
-        x_packed = pack_padded_sequence(
-            x_embbed, len.cpu(), batch_first=True, enforce_sorted=False
+        self.cross_attn_norm = nn.LayerNorm(self.s_dim)
+        
+        self.last_ffnn = nn.Sequential(
+            nn.Linear(self.s_dim, dim_feedforward),
+            nn.ReLU(),
+            # nn.Dropout(0.1),
+            nn.Linear(dim_feedforward, self.s_dim),
         )
-        h_packed, _ = self.enc_rnn(x_packed)
-        padding_value = float("-inf")
-        output, lengths = pad_packed_sequence(
-            h_packed, batch_first=True, padding_value=padding_value
-        )
-        h = output.max(1)[0]
-        out = self.enc_out(h)
-        mean = out[:, : self.z_dim]
-        lvar = out[:, self.z_dim :]
-        return mean, lvar
+        self.last_ffnn_norm = nn.LayerNorm(self.s_dim)
+        
+        self.dense = nn.Linear(self.s_dim, self.s_dim)
+    
+    def forward(self, x):
+        b = x.shape[0]
+        x = self.w_emb(x)
+        attn_output = self.self_attn(x, x, x)[0]
+        # attn_output = self.dropout(attn_output)
+        x = self.norm(x + attn_output)
 
-class CompoundPCFG(PCFG_module):
+        # term = self.term_norm(self.term(x)).mean(dim=1, keepdim=True)
+        # enc_output = self.term_norm(x + self.term(x)).mean(dim=1, keepdim=True)
+        enc_output = self.term_norm(x + self.term(x))
+
+        term_emb = self.term_emb.expand(b, -1, -1)
+        term_attn_output = self.term_self_attn(
+            term_emb, term_emb, term_emb
+        )[0]
+        dec_output = self.term_attn_norm(term_emb + term_attn_output)
+
+        cross_attn_output = self.cross_attn(
+            dec_output, enc_output, enc_output
+        )[0]
+        cross_output = self.cross_attn_norm(dec_output + cross_attn_output)
+
+        last_ffnn_output = self.last_ffnn(cross_output)
+        last_output = self.last_ffnn_norm(cross_output + last_ffnn_output)
+        output = self.dense(last_output)
+
+        return output
+
+class SymbolAPCFG(PCFG_module):
     def __init__(self, args):
-        super(CompoundPCFG, self).__init__()
+        super(SymbolAPCFG, self).__init__()
         self.pcfg = PCFG()
         self.part = PartitionFunction()
         self.args = args
@@ -144,17 +181,20 @@ class CompoundPCFG(PCFG_module):
         self.w_dim = args.w_dim
         self.h_dim = args.h_dim
 
-        self.nonterms = Nonterm_parameterizer(
-            self.s_dim, self.z_dim, self.NT, self.T
-        )
-        self.terms = Term_parameterizer(
-            self.s_dim, self.z_dim, self.T, self.V
-        )
         self.root = Root_parameterizer(
             self.s_dim, self.z_dim, self.NT
         )
+        self.nonterms = Nonterm_parameterizer(
+            self.s_dim, self.z_dim, self.NT, self.T
+        )
+        self.term_emb = nn.Parameter(torch.randn(self.T, self.s_dim))
+        self.terms = Term_parameterizer(
+            self.term_emb, self.s_dim, self.z_dim, self.T, self.V
+        )
 
-        self.enc = Encoder(self.V, self.w_dim, self.h_dim, self.z_dim)
+        self.attn = EncodingLayer(
+            self.term_emb, self.V, self.w_dim, self.NT, self.T, num_heads=8
+        )
 
         # Partition function
         self.mode = getattr(args, "mode", None)
@@ -208,37 +248,14 @@ class CompoundPCFG(PCFG_module):
     def clear_metrics(self):
         self._metrics = None
 
-    # @property
-    # def rules(self):
-    #     if getattr(self, "_rules", None) is None:
-    #         self._rules = self.forward({"word": torch.zeros([1, 1])})
-    #     return self._rules
-
-    # @rules.setter
-    # def rules(self, rule):
-    #     self._rules = rule
-
-    def forward(self, input, evaluating=False):
+    def forward(self, input):
         x = input["word"]
         b, n = x.shape[:2]
-        seq_len = input["seq_len"]
 
-        def kl(mean, logvar):
-            result = -0.5 * (logvar - torch.pow(mean, 2) \
-                - torch.exp(logvar) + 1)
-            return result
+        term_z = self.attn(x)
 
-        # mean, lvar = enc(x)
-        # z = mean
-
-        mean, lvar = self.enc(x, seq_len)
-        z = torch.cat([mean, lvar], -1)
-
-        if not evaluating:
-            z = mean.new(b, mean.size(1)).normal_(0, 1)
-            z = (0.5 * lvar).exp() * z + mean
-
-        root, unary, rule = self.root(z), self.terms(z), self.nonterms(z)
+        root, rule = self.root(term_z), self.nonterms(term_z)
+        unary = self.terms(term_z)
 
         # for gradient conflict by using gradients of rules
         if self.training:
@@ -249,8 +266,7 @@ class CompoundPCFG(PCFG_module):
         return {
             "unary": unary,
             "root": root,
-            "rule": rule,
-            # "kl": kl(mean, lvar).sum(1)
+            "rule": rule
         }
 
     def loss(self, input, partition=False, max_depth=0, soft=False):
@@ -260,23 +276,16 @@ class CompoundPCFG(PCFG_module):
         result = self.pcfg(self.rules, terms, lens=input["seq_len"])
         # Partition function
         if partition:
-            # depth-conditioned inside algorithm
-            # partition function approximation
-            # if max_depth == 0:
-            #     lens = input['seq_len']
-            # else:
-            #     lens = max_depth
             self.pf = self.part(self.rules, lens=input["seq_len"], mode=self.mode)
             # Renormalization
             if soft:
                 return (-result["partition"] + self.rules["kl"]).mean(), self.pf.mean()
             result["partition"] = result["partition"] - self.pf
         # depth-conditioned inside algorithm
-        # return (-result["partition"] + self.rules["kl"]).mean()
         return (-result["partition"]).mean()
 
     def evaluate(self, input, decode_type, depth=0, depth_mode=False, **kwargs):
-        rules = self.forward(input, evaluating=True)
+        rules = self.forward(input)
         terms = self.term_from_unary(input["word"], rules["unary"])
 
         if decode_type == "viterbi":

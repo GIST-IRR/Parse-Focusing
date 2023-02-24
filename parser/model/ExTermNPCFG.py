@@ -16,9 +16,9 @@ import math
 import os
 
 
-class NeuralPCFG(PCFG_module):
+class ExTermNPCFG(PCFG_module):
     def __init__(self, args):
-        super(NeuralPCFG, self).__init__()
+        super(ExTermNPCFG, self).__init__()
         self.pcfg = PCFG()
         self.part = PartitionFunction()
         self.args = args
@@ -35,9 +35,12 @@ class NeuralPCFG(PCFG_module):
         self.temperature = getattr(args, "temperature", 1.0)
         self.smooth = getattr(args, "smooth", 0.0)
 
-        self.terms = Term_parameterizer(
-            self.s_dim, self.T, self.V
-        )
+        self.lang = getattr(args, "lang", "english")
+        self.factor = getattr(args, "factor", "right")
+
+        # self.terms = Term_parameterizer(
+        #     self.s_dim, self.T, self.V
+        # )
         self.nonterms = Nonterm_parameterizer(
             self.s_dim, self.NT, self.T, self.temperature
         )
@@ -50,6 +53,19 @@ class NeuralPCFG(PCFG_module):
 
         # I find this is important for neural/compound PCFG. if do not use this initialization, the performance would get much worser.
         self._initialize()
+
+        # terms_checkpoint = torch.load('weights/terms.pt')
+        # self.terms = torch.nn.Parameter(terms_checkpoint)
+        # self.terms.requires_grad_(False)
+
+        terms_checkpoint = torch.load(
+            f'weights/{self.lang}_xbar_{self.factor}_term_pd.pt')
+        terms_checkpoint = (terms_checkpoint / terms_checkpoint.sum(-1, keepdims=True)).log()
+        terms_checkpoint = terms_checkpoint.where(
+            ~terms_checkpoint.isinf(), 
+            torch.full_like(terms_checkpoint, -1e9))
+        self.terms = torch.nn.Parameter(terms_checkpoint)
+        self.terms.requires_grad_(False)
 
     def withoutTerm_parameters(self):
         for name, param in self.named_parameters():
@@ -203,37 +219,19 @@ class NeuralPCFG(PCFG_module):
             roots = roots.expand(b, self.NT)
             return roots
 
-        def terms():
-            term_prob = self.terms()
-            term_prob = term_prob.expand(b, *term_prob.shape)
-            return term_prob
-
-            # kmeans distribution
-            # term_emb = self.term_emb / torch.linalg.norm(self.term_emb, dim=-1, keepdim=True)
-            # word_emb = self.word_emb / torch.linalg.norm(self.word_emb, dim=-1, keepdim=True)
-            # term_prob = torch.matmul(term_emb, word_emb.T) - 1
-            # term_prob = term_prob.log_softmax(-1)
-            # term_prob = term_prob.unsqueeze(0).expand(b, self.T, self.V)
-
-            # word2vec distribution
-            # term_prob = self.term_mlp(self.term_emb)
-            # term_prob = self.term_mlp2(term_prob)
-            # term_prob = term_prob.log_softmax(-1)
-            # term_prob = term_prob.unsqueeze(0).expand(b, self.T, self.V)
-            # return term_prob
-
         def rules():
             rule_prob = self.nonterms()
             rule_prob = rule_prob.reshape(self.NT, self.NT_T, self.NT_T)
             rule_prob = rule_prob.expand(b, *rule_prob.shape)
             return rule_prob
 
-        root, unary, rule = roots(), terms(), rules()
-        # root, unary, rule = roots(), self.terms.expand(b, -1, -1), rules()
+        # root, unary, rule = roots(), terms(), rules()
+        root, unary, rule = roots(), self.terms.expand(b, -1, -1), rules()
         # for gradient conflict by using gradients of rules
         if self.training:
-            root.retain_grad()
-            rule.retain_grad()
+            pass
+            # root.retain_grad()
+            # rule.retain_grad()
             # unary.retain_grad()
             # # Masking backward hook
             # def masking(grad):
@@ -278,21 +276,6 @@ class NeuralPCFG(PCFG_module):
             smooth=self.smooth
         )
         self.rules["word"] = input["word"]
-
-        # Calculate inside algorithm
-        # result = self.pcfg(
-        #     self.rules, terms, lens=input["seq_len"]
-        # )
-        # result = self.pcfg(
-        #     self.rules, terms, lens=input["seq_len"], topk=4
-        # )
-        # pf = self.pcfg(
-        #     self.rules, terms, lens=input["seq_len"]
-        # )
-        # result = self.pcfg(self.rules, self.rules['unary'], lens=input['seq_len'])
-
-        # log_cos_term = self.cos_sim_max(self.rules['log_cos_term'])
-        # log_cos_nonterm = self.cos_sim_max(self.rules['log_cos_nonterm'])
 
         if partition:
             result = self.pcfg(

@@ -12,13 +12,12 @@ from .PCFG_module import (
 )
 
 import matplotlib.pyplot as plt
-import math
 import os
 
 
-class NeuralPCFG(PCFG_module):
+class NormNPCFG(PCFG_module):
     def __init__(self, args):
-        super(NeuralPCFG, self).__init__()
+        super(NormNPCFG, self).__init__()
         self.pcfg = PCFG()
         self.part = PartitionFunction()
         self.args = args
@@ -38,6 +37,9 @@ class NeuralPCFG(PCFG_module):
         self.terms = Term_parameterizer(
             self.s_dim, self.T, self.V
         )
+        # self.terms = torch.randn(self.T, self.V)
+        # self.terms.requires_grad_(False)
+
         self.nonterms = Nonterm_parameterizer(
             self.s_dim, self.NT, self.T, self.temperature
         )
@@ -47,6 +49,7 @@ class NeuralPCFG(PCFG_module):
 
         # Partition function
         self.mode = getattr(args, "mode", "length_unary")
+        self._count_structure = {1: 1}
 
         # I find this is important for neural/compound PCFG. if do not use this initialization, the performance would get much worser.
         self._initialize()
@@ -194,6 +197,17 @@ class NeuralPCFG(PCFG_module):
     def rules(self, rule):
         self._rules = rule
 
+    def count_structure(self, length):
+        if length in self._count_structure:
+            return self._count_structure[length]
+        else:
+            counting = 0
+            for i in range(1, length):
+                counting += self.count_structure(i) \
+                    * self.count_structure(length-i)
+            self._count_structure[length] = counting
+            return counting
+
     def forward(self, input):
         x = input["word"]
         b, n = x.shape[:2]
@@ -205,27 +219,13 @@ class NeuralPCFG(PCFG_module):
 
         def terms():
             term_prob = self.terms()
-            term_prob = term_prob.expand(b, *term_prob.shape)
+            term_prob = term_prob.unsqueeze(0).expand(b, self.T, self.V)
             return term_prob
-
-            # kmeans distribution
-            # term_emb = self.term_emb / torch.linalg.norm(self.term_emb, dim=-1, keepdim=True)
-            # word_emb = self.word_emb / torch.linalg.norm(self.word_emb, dim=-1, keepdim=True)
-            # term_prob = torch.matmul(term_emb, word_emb.T) - 1
-            # term_prob = term_prob.log_softmax(-1)
-            # term_prob = term_prob.unsqueeze(0).expand(b, self.T, self.V)
-
-            # word2vec distribution
-            # term_prob = self.term_mlp(self.term_emb)
-            # term_prob = self.term_mlp2(term_prob)
-            # term_prob = term_prob.log_softmax(-1)
-            # term_prob = term_prob.unsqueeze(0).expand(b, self.T, self.V)
-            # return term_prob
 
         def rules():
             rule_prob = self.nonterms()
             rule_prob = rule_prob.reshape(self.NT, self.NT_T, self.NT_T)
-            rule_prob = rule_prob.expand(b, *rule_prob.shape)
+            rule_prob = rule_prob.unsqueeze(0).expand(b, *rule_prob.shape)
             return rule_prob
 
         root, unary, rule = roots(), terms(), rules()
@@ -235,15 +235,6 @@ class NeuralPCFG(PCFG_module):
             root.retain_grad()
             rule.retain_grad()
             # unary.retain_grad()
-            # # Masking backward hook
-            # def masking(grad):
-            #     # b, n = x.shape
-            #     # indices = x[..., None].expand(-1, -1, self.T).permute(0, 2, 1)
-            #     # mask = indices.new_zeros(b, self.T, self.V).scatter_(2, indices, 1.)
-            #     print("in the hook!")
-            #     return grad * 2
-
-            # unary.register_hook(masking)
 
         self.clear_metrics() # clear metrics becuase we have new rules
 
@@ -316,7 +307,11 @@ class NeuralPCFG(PCFG_module):
                 dropout=self.dropout
             )
 
-        return -result["partition"]
+        count = torch.tensor(
+            [self.count_structure(i.item()) for i in input['seq_len']],
+            dtype=torch.float, device=input['seq_len'].device
+        )
+        return -result["partition"] + count.log()
         # return -result['partition'] + 0.5 * pf['partition']
         # return -output.squeeze(1)
 

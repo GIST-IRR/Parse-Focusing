@@ -7,6 +7,7 @@ import torch.distributions as dist
 from ..modules.res import ResLayer, ResLayerNorm
 
 import math
+import numpy as np
 
 
 class Term_parameterizer(nn.Module):
@@ -276,12 +277,22 @@ class PCFG_module(nn.Module):
                 retain_graph=True
             )
         
-    def term_from_unary(self, word, term):
+    def term_from_unary(self, word, term, smooth=0.0):
         n = word.shape[1]
         b = term.shape[0]
         term = term.unsqueeze(1).expand(b, n, self.T, self.V)
-        indices = word[..., None, None].expand(b, n, self.T, 1)
-        return torch.gather(term, 3, indices).squeeze(3)
+
+        # indices = word[..., None, None].expand(b, n, self.T, 1)
+        # return torch.gather(term, 3, indices).squeeze(3)
+
+        # # Smoothing
+        word = F.one_hot(word, num_classes=self.V)
+        smooth_weight = word * (1-smooth) + smooth / self.V
+        term = term + smooth_weight.unsqueeze(2).log()
+        term = term.logsumexp(-1)
+
+        return term
+        
 
     def soft_backward(self, loss, z_l, optimizer, dambda=1.0, target='rule', mode='projection'):
         def batch_dot(x, y):
