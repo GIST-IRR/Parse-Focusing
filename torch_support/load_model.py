@@ -33,13 +33,18 @@ def get_model(model_name, args=None, device='cpu'):
     
     return model(args).to(device)
 
-def get_model_args(args, device):
+def get_model_args(args, device, state_dict=None):
     # get model name
     name = args.name
     # get model kwargs
     args.pop("name")
     # get model
     model = get_model(name, args, device)
+    
+    # Load statd dict if is not None
+    if state_dict is not None:
+        model.load_state_dict(state_dict)
+
     return model
 
 def get_optimizer(optimizer_name, params, kwargs):
@@ -57,11 +62,16 @@ def get_optimizer(optimizer_name, params, kwargs):
 
     return optimizer(params=params, **kwargs)
 
-def get_optimizer_args(args, params):
+def get_optimizer_args(args, params, state_dict=None):
     # get optimizer name
     name = args.name
     # get optimizer kwargs
     args.pop("name")
     # get optimizer
     optimizer = get_optimizer(name, params, args)
+
+    # Load statd dict if is not None
+    if state_dict is not None:
+        optimizer.load_state_dict(state_dict)
+        
     return optimizer

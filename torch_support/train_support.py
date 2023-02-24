@@ -1,3 +1,5 @@
+import typing
+
 import os
 import time
 from pathlib import Path
@@ -14,49 +16,49 @@ except:
 import json
 from easydict import EasyDict
 
-def get_config_from(path, easydict=True, verbose=False):
-    """Only support yaml and json file.
+def get_config_from(*path, easydict=True, verbose=False):
+    """_summary_
 
     Args:
-        path (_type_): _description_
-        easydict (bool, optional): _description_. Defaults to True.
-        verbose (bool, optional): _description_. Defaults to False.
-
-    Raises:
-        ValueError: _description_
-        ValueError: _description_
-        ValueError: _description_
-        ValueError: _description_
+        easydict (bool, optional): EasyDict instance is returned if true else dict retunred. Defaults to True.
+        verbose (bool, optional): Print out result. Defaults to False.
 
     Returns:
         _type_: _description_
     """
     # check the path
-    if not isinstance(path, Path):
-        path = Path(path)
+    path = [Path(p) for p in path]
     
     # load the config file
-    if path.suffix == '.json':
+    config = {}
+    for p in path:
+        if p.suffix == '.json':
+            try:
+                with open(p, 'r') as f:
+                    conf = json.load(f)
+            except:
+                raise ValueError(f'Cannot load the config file. Please check the file path.')
+        elif p.suffix == '.yaml':
+            try:
+                with open(p, 'r') as f:
+                    conf = load(f, Loader=Loader)
+            except:
+                raise ValueError(f'Cannot load the config file. Please check the file path.')
+        else:  
+            raise ValueError(f'Unsupported file extension [{p.suffix}]')
+        
         try:
-            with open(path, 'r') as f:
-                config = json.load(f)
+            config.update(conf)
         except:
-            raise ValueError(f'Cannot load the config file. Please check the file path.')
-    elif path.suffix == '.yaml':
-        try:
-            with open(path, 'r') as f:
-                config = load(f, Loader=Loader)
-        except:
-            raise ValueError(f'Cannot load the config file. Please check the file path.')
-    else:  
-        raise ValueError(f'Unsupport file type {path.suffix}')
-    
-    try:
-        config.update({'conf': str(path)})
-    except:
-        raise ValueError(
-            f'config file should be a dict, but got {type(config)}'
-        )
+            raise ValueError(
+                f'config file should be a dict, but got {type(config)}'
+            )
+    # Update configuration paths
+    if len(path) == 1:
+        config.update({'conf': str(p)})
+    else:
+        config.update({'conf': [str(p) for p in path]})
+
     # convert to easydict
     if easydict:
         config = EasyDict(config)
@@ -67,21 +69,18 @@ def get_config_from(path, easydict=True, verbose=False):
     
     return config
 
-def save_config_to(config, path, type='yaml'):
-    if type == 'yaml':
+def save_config_to(config, path, ext='yaml'):
+    if ext == 'yaml':
         with open(path, 'w') as f:
             dump(config, f, Dumper=Dumper)
-    elif type == 'json':
+    elif ext == 'json':
         with open(path, 'w') as f:
             json.dump(config, f)
     else:
-        raise ValueError(f'Unsupport type {type}')
+        raise ValueError(f'Unsupport type {ext}')
 
-def setup_log_dir(path, parents=True, exist_ok=True):
-    if isinstance(path, (list, tuple)):
-        path = [Path(p) for p in path]
-    else:
-        path = [Path(path)]
+def setup_log_dir(*path, parents=True, exist_ok=True):
+    path = [Path(p) for p in path]
 
     for p in path:
         if not p.exists():
@@ -110,6 +109,31 @@ def create_save_path(args, copy_config=True, copy_code=True):
     if copy_code:
         os.makedirs(args.save_dir + "/parser")
         copy_tree("parser/", args.save_dir + "/parser")
+    return saved_name
+
+def _create_save_path(tag, path, copy_config_from=None, copy_code_from=None):
+    path = Path(path)
+    # name setup
+    suffix = \
+        f'/{tag}' \
+        + time.strftime("%Y-%m-%d-%H_%M_%S", time.localtime(time.time()))
+    saved_name = path.stem + suffix
+    path = path / suffix
+
+    # Check existence of the save dir
+    if path.exists():
+        print(f'Warning: the folder {path} exists.')
+    else:
+        print(f'Creating {path}')
+        path.mkdir()
+
+    # save the config file and model file.
+    if copy_config_from:
+        shutil.copyfile(copy_config_from, path / "config.yaml")
+    if copy_code_from:
+        new_code_path = path / copy_code_from
+        new_code_path.mkdir()
+        copy_tree(copy_code_from, new_code_path)
     return saved_name
 
 def get_logger(
