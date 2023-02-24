@@ -43,6 +43,7 @@ class Train(CMD):
             worker_init_fn = checkpoint['worker_init_fn']
             generator = checkpoint['generator']
         else:
+            checkpoint = {'model': None, 'optimizer': None}
             if hasattr(args, 'seed'):
                 worker_init_fn, generator = \
                     reproducibility.fix_seed(args.seed)
@@ -57,21 +58,21 @@ class Train(CMD):
         args.model.update({"V": len(dataset.word_vocab)})
 
         # Setup model
-        self.model = get_model_args(args.model, self.device)
-        # Load pretrained model
-        if hasattr(args, 'pretrained_model'):
-            self.model.load_state_dict(checkpoint['model'])
+        self.model = get_model_args(
+            args.model, self.device, checkpoint['model']
+        )
 
         # Setup optimizer
         self.optimizer = get_optimizer_args(
-            args.optimizer, self.model.withoutTerm_parameters()
+            args.optimizer, self.model.parameters(), checkpoint['optimizer']
         )
-        self.term_optimizer = get_optimizer_args(
-            args.term_optimizer, self.model.terms.parameters()
-        )
-        # Load pretrained optimizer
-        if hasattr(args, 'pretrained_model'):
-            self.optimizer.load_state_dict(checkpoint['optimizer'])
+        # self.optimizer = get_optimizer_args(
+        #     args.optimizer, self.model.withoutTerm_parameters(),
+        #     checkpoint['optimizer']
+        # )
+        # self.term_optimizer = get_optimizer_args(
+        #     args.term_optimizer, self.model.terms.parameters()
+        # )
 
         # Setup logger
         self.conflict_detector = ConflictDetector(
@@ -93,12 +94,15 @@ class Train(CMD):
             #     # if ('terms.' in k and 'nonterms.' not in k) or 'enc_' in k
             #     if 'nonterms.' in k or 'enc_' in k
             # }
-            terms_model_dict = {
-                '.'.join(k.split('.')[1:]): v
-                for k, v in terms_checkpoint['model'].items()
-                if ('terms.' in k and 'nonterms.' not in k) or 'enc_' in k
-                # if 'nonterms.' in k or 'enc_' in k
-            }
+
+            # terms_model_dict = {
+            #     '.'.join(k.split('.')[1:]): v
+            #     for k, v in terms_checkpoint['model'].items()
+            #     if ('terms.' in k and 'nonterms.' not in k) or 'enc_' in k
+            #     # if 'nonterms.' in k or 'enc_' in k
+            # }
+            self.model.terms = torch.nn.Parameter(terms_checkpoint)
+            self.model.terms.requires_grad_(False)
             # nonterms_model_dict = {
             #     '.'.join(k.split('.')[1:]): v
             #     for k, v in nonterms_checkpoint['model'].items()
@@ -110,17 +114,17 @@ class Train(CMD):
             # for param in self.model.nonterms.parameters():
             #     param.requires_grad_(False)
 
-            self.model.terms.load_state_dict(terms_model_dict)
-            for param in self.model.terms.parameters():
-                param.requires_grad_(False)
+            # self.model.terms.load_state_dict(terms_model_dict)
+            # for param in self.model.terms.parameters():
+            #     param.requires_grad_(False)
 
             # for name, param in self.model.named_parameters():
             #     if 'enc_' in name:
             #         param.requires_grad_(False)
 
-            if hasattr(self.model, 'enc'):
-                for param in self.model.enc.parameters():
-                    param.requires_grad_(False)
+            # if hasattr(self.model, 'enc'):
+            #     for param in self.model.enc.parameters():
+            #         param.requires_grad_(False)
 
         # Load word embeddings
         # self.word_vectors = gensim.models.KeyedVectors.load('word2vec-ptb-std.wordvectors')
@@ -315,7 +319,7 @@ class Train(CMD):
                 best_e = epoch
 
                 reproducibility.save(
-                    args.save_dir + "/last.pt",
+                    args.save_dir + f"/best.pt",
                     model=self.model.state_dict(),
                     optimizer=self.optimizer.state_dict(),
                     epoch=epoch,
@@ -326,7 +330,7 @@ class Train(CMD):
 
             # save the last model
             reproducibility.save(
-                args.save_dir + "/last.pt",
+                args.save_dir + f"/last.pt",
                 model=self.model.state_dict(),
                 optimizer=self.optimizer.state_dict(),
                 epoch=epoch,

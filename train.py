@@ -20,10 +20,12 @@ def train(args2):
     # load config
     args = get_config_from(args2.conf)
     args.update(args2.__dict__)
+
     # update save directory
     config_path = Path(args2.conf)
     config_name = config_path.stem
-    args.save_dir = args.save_dir + "/{}".format(config_name)
+    args.save_dir = args.save_dir + f"/{config_name}"
+    
     # generate save directory
     setup_log_dir(args.save_dir)
 

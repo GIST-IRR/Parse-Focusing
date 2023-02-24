@@ -6,3 +6,10 @@ __pycache__/
 config/
 figure/
 heatmap/
+*.model
+*.wordvectors
+*.vocab
+*.means
+weights/
+*.dataset
+*.pkl

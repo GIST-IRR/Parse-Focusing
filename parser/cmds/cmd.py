@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 import math
 import os
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 from tqdm import tqdm
@@ -85,72 +87,70 @@ class CMD(object):
             start (int, optional): start step of iteration. Defaults to 0.
             step (int, optional): each logging step. Defaults to 500.
         """
-        if iter != start and iter % step == 0:
+        if not (iter != start and iter % step == 0):
+            return
+
+        # Log training loss
+        self.writer.add_scalar(
+            "train/loss", self.total_loss / step, iter
+        )
+        # Log lambda for warm up
+        self.writer.add_scalar("train/lambda", self.dambda, iter)
+
+        metrics = self.total_metrics
+        for k, v in metrics.items():
+            # self.writer.add_scalar(
+            #     f"train/{k}", metrics[k].mean().item() / step, iter
+            # )
             self.writer.add_scalar(
-                "train/loss", self.total_loss / step, iter
+                f"train/{k}", metrics[k] / step, iter
             )
-            self.writer.add_scalar("train/lambda", self.dambda, iter)
 
-            # metrics = self.model.metrics
-            metrics = self.total_metrics
-            for k, v in metrics.items():
-                # self.writer.add_scalar(
-                #     f"train/{k}", metrics[k].mean().item() / step, iter
-                # )
-                self.writer.add_scalar(
-                    f"train/{k}", metrics[k] / step, iter
-                )
-                # tensor_to_heatmap(self.model.rules[k], dirname=heatmap_dir, filename=f'kl_term_{self.iter}.png')
-                # self.writer.add_figure(f'train/{k}', tensor_to_heatmap(self.model.rules[k]), self.iter)
+        # Log entropy of each rule distributions
+        # self.writer.add_scalar(
+        #     "train/rule_entropy",
+        #     self.model.entropy("rule", probs=True, reduce="mean"),
+        #     iter,
+        # )
 
-            self.writer.add_scalar(
-                "train/rule_entropy",
-                self.model.entropy("rule", probs=True, reduce="mean"),
+        # initialize metrics
+        self.total_loss = 0
+        self.total_len = 0
+        for k in metrics.keys():
+            metrics[k] = 0
+        
+        if hasattr(self.model, "pf"):
+            self.writer.add_histogram(
+                "train/partition_number",
+                self.model.pf.detach().cpu(),
                 iter,
             )
-            # initialize metrics
-            self.total_loss = 0
-            self.total_len = 0
-            for k in metrics.keys():
-                metrics[k] = 0
-            
-            if hasattr(self.model, "pf"):
-                self.writer.add_histogram(
-                    "train/partition_number",
-                    self.model.pf.detach().cpu(),
-                    iter,
-                )
-                self.pf = []
+            self.pf = []
 
-            for k, v in self.model.rules.items():
-                self.writer.add_histogram(
-                    f"train/{k}_prob", v.detach().cpu(), iter
-                )
-                if v.grad is not None:
-                    self.writer.add_histogram(
-                        f"train/{k}_grad", v.grad.detach().cpu(), iter
-                    )
-
-            ent = self.model.entropy("rule")
-            self.writer.add_histogram(
-                f"train/entropy", ent.detach().cpu(), iter
-            )
-            # save_rule_heatmap(self.model.rules, dirname='figure', filename=f'rule_{self.iter}.png', root=False, rule=False)
-            # diff = {}
-            # for k in self.model.rules.keys():
-            #     diff[k] = self.model.rules[k] - prev_rules[k]
-            # save_rule_heatmap(diff, dirname='figure', filename=f'rule_diff_{self.iter}.png', root=False, unary=True)
+        for k, v in self.model.rules.items():
+            if not isinstance(v, torch.Tensor):
+                continue
+            # self.writer.add_histogram(
+            #     f"train/{k}_prob", v.detach().cpu(), iter
+            # )
+            # if v.grad is not None:
+            #     self.writer.add_histogram(
+            #         f"train/{k}_grad", v.grad.detach().cpu(), iter
+            #     )
         return
 
     def train(self, loader):
         self.model.train()
         t = tqdm(loader, total=int(len(loader)), position=0, leave=True)
         train_arg = self.args.train
-        heatmap_dir = os.path.join(self.args.save_dir, "heatmap")
-        if not os.path.exists(heatmap_dir):
-            os.makedirs(heatmap_dir, exist_ok=True)
+
+        # Make directory for saving heatmaps
+        heatmap_dir = Path(self.args.save_dir) / "heatmap"
+        if not heatmap_dir.exists():
+            heatmap_dir.mkdir(parents=True, exist_ok=True)
 
         for x, _ in t:
+            # Parameter update
             if not hasattr(train_arg, "warmup_epoch") and hasattr(
                 train_arg, "warmup"
             ):
@@ -162,13 +162,16 @@ class CMD(object):
 
             if self.partition:
                 self.dambda = self.lambda_update(train_arg)
-
+                # self.model.update_dropout(1 - self.dambda)
                 # Soft gradients
                 if self.dambda > 0:
                     loss, z_l = self.model.loss(
                         x, partition=self.partition, soft=True
                     )
-                    t_loss = (loss + self.dambda * z_l).mean()
+                    # t_loss = (loss + self.dambda * z_l).mean()
+                    # t_loss = (loss + 0.5 * z_l).mean()
+                    t_loss = (loss + z_l).mean()
+
                     # self.model.soft_backward(
                     #     loss, z_l, self.optimizer,
                     #     dambda=self.dambda,
@@ -181,9 +184,12 @@ class CMD(object):
                     
                 t_loss.backward()
 
-                loss = loss.mean()
-                if z_l is not None:
-                    z_l = z_l.mean()
+                # loss = loss.mean()
+                # if z_l is not None:
+                #     z_l = z_l.mean()
+                # on the renormalization trick,
+                # z_l is the sentence probability
+                loss = z_l.mean() if z_l is not None else loss.mean()
 
             else:
                 # Hard gradients
@@ -202,20 +208,29 @@ class CMD(object):
             #         diff[k] = self.model.rules[k] - prev_rules[k]
             #     save_rule_heatmap(diff, dirname='figure', filename=f'rule_diff_{self.iter}.png', root=False, unary=True)
             # prev_rules = self.model.rules
+            # self.conflict_detector.calculate_prior(x)
         
             # Gradient clipping
             if train_arg.clip > 0:
                 nn.utils.clip_grad_norm_(
                     self.model.parameters(), train_arg.clip
                 )
+
             # Gradient update
-            self.optimizer.step()
+            # self.optimizer.step()
+            # self.term_optimizer.step()
+            # self.model.clear_grammar()
+
+            # Temp
+            # self.conflict_detector.calculate_posterior()
 
             # writer
             self.total_loss += loss.item()
             self.total_len += x["seq_len"].max().double()
 
             for k in self.total_metrics.keys():
+                if not k in self.total_metrics:
+                    self.total_metrics[k] = 0
                 self.total_metrics[k] += self.model.metrics[k].mean().item()
 
             if hasattr(self.model, "pf"):
@@ -225,14 +240,15 @@ class CMD(object):
                     else [self.model.pf.detach().cpu().tolist()]
                 )
 
-            if getattr(train_arg, "heatmap"):
+            if getattr(train_arg, "heatmap", False):
                 if self.iter % int(self.total_iter / 10) == 0:
-                    self.model.save_rule_heatmap(
+                    save_rule_heatmap(
+                        self.model.rules,
                         dirname=heatmap_dir,
                         filename=f"rule_dist_{self.iter}.png",
                     )
             
-            self.log_step(self.iter, start=0, step=500)
+            self.log_step(self.iter, start=0, step=1000)
 
             # prev_rules = self.model.rules
             # Check total iteration
@@ -269,13 +285,22 @@ class CMD(object):
         )
 
         self.pf_sum = torch.zeros(depth + 1)
+        self.sequence_length = {}
         self.estimated_depth = {}
         self.estimated_depth_by_length = {}
         self.parse_trees = []
+        self.parse_trees_type = []
         for x, y in t:
             result = model.evaluate(
                 x, decode_type=decode_type, eval_dep=eval_dep, depth=depth
             )
+
+            # Save sequence lengths
+            for length in x["seq_len"].detach().cpu().tolist():
+                if length in self.sequence_length:
+                    self.sequence_length[length] += 1
+                else:
+                    self.sequence_length[length] = 1
 
             result["prediction"] = sort_span(result["prediction"])
             self.parse_trees += [
@@ -290,6 +315,9 @@ class CMD(object):
             #     for i, pos in enumerate(tree.treepositions('leaves')):
             #         tree[pos] = y['pos'][i]
             predicted_trees = [span_to_tree(r) for r in result["prediction"]]
+            for tree in predicted_trees:
+                if tree not in self.parse_trees_type:
+                    self.parse_trees_type.append(tree)
             s_depth = [depth_from_tree(t) for t in predicted_trees]
             for d in s_depth:
                 if d in self.estimated_depth:
@@ -373,6 +401,22 @@ class CMD(object):
             metric_ll(result["partition"], x["seq_len"])
             if eval_dep:
                 metric_uas(result["prediction_arc"], y["head"])
+
+        sorted_type = {}
+        for tree in self.parse_trees_type:
+            tree_length = len(tree.leaves())
+            if tree_length not in sorted_type:
+                sorted_type[tree_length] = [tree]
+            else:
+                sorted_type[tree_length].append(tree)
+
+        # num_trees = {
+        #     i: len(sorted_type[i]) for i in range(2, 60) if i in sorted_type
+        # }
+        # tree_ratio = {
+        #     i: self.sequence_length[i] / len(sorted_type[i])
+        #     for i in range(2, 60) if i in sorted_type
+        # }
 
         return (
             metric_f1,

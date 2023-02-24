@@ -19,6 +19,12 @@ from pathlib import Path
 import pickle
 
 from torch.utils.tensorboard import SummaryWriter
+import torch_support.reproducibility as reproducibility
+from torch_support.load_model import (
+    get_model_args,
+    get_optimizer_args
+)
+
 
 class Evaluate(CMD):
 
@@ -27,18 +33,22 @@ class Evaluate(CMD):
         self.device = args.device
         self.args = args
 
-        def seed_worker(worker_id):
-            worker_seed = args.seed % 2**32
-            np.random.seed(worker_seed)
-            random.seed(worker_seed)
+        # reproducibility.fix_seed(args.seed)
 
-        generator = torch.Generator()
-        generator.manual_seed(args.seed)
-        dataset = DataModule(args, generator=generator, worker_init_fn=seed_worker)
+        # def seed_worker(worker_id):
+        #     worker_seed = args.seed % 2**32
+        #     np.random.seed(worker_seed)
+        #     random.seed(worker_seed)
+
+        # generator = torch.Generator()
+        # generator.manual_seed(args.seed)
+        # dataset = DataModule(args, generator=generator, worker_init_fn=seed_worker)
+        dataset = DataModule(args)
         self.vocab = dataset.word_vocab
 
         # dataset = DataModule(args)
-        self.model = get_model(args.model, dataset)
+        args.model.update({"V": len(dataset.word_vocab)})
+        self.model = get_model_args(args.model, self.device)
 
         best_model_path = self.args.load_from_dir + f"/{tag}.pt"
         checkpoint = torch.load(best_model_path, map_location=self.device)
