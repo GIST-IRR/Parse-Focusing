@@ -9,6 +9,7 @@ from .SymbolAPCFG import SymbolAPCFG
 from .NormNPCFG import NormNPCFG
 from .ExTermNPCFG import ExTermNPCFG
 from .ExternalNPCFG import ExternalNPCFG
+from .TAGPCFG import TAGPCFG
 
 
 __all__ = [

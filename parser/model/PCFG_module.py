@@ -292,7 +292,6 @@ class PCFG_module(nn.Module):
         term = term.logsumexp(-1)
 
         return term
-        
 
     def soft_backward(self, loss, z_l, optimizer, dambda=1.0, target='rule', mode='projection'):
         def batch_dot(x, y):

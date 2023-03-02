@@ -217,7 +217,7 @@ class CMD(object):
                 )
 
             # Gradient update
-            # self.optimizer.step()
+            self.optimizer.step()
             # self.term_optimizer.step()
             # self.model.clear_grammar()
 
