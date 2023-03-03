@@ -127,8 +127,8 @@ class Evaluate(CMD):
         self.writer.close()
 
         # Heatmap
-        self.model.save_rule_heatmap(dirname=self.args.load_from_dir, filename='eval_rule_dist.png')
-        save_rule_heatmap(self.model.rules, dirname=self.args.load_from_dir)
+        save_rule_heatmap(self.model.rules, dirname=self.args.load_from_dir, filename='eval_rule_dist.png')
+        # save_rule_heatmap(self.model.rules, dirname=self.args.load_from_dir)
         
         # Log - CSV
         import csv

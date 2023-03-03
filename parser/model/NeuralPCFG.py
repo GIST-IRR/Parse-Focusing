@@ -65,55 +65,6 @@ class NeuralPCFG(PCFG_module):
     def update_dropout(self, rate):
         self.apply_dropout = self.init_dropout * rate
 
-    def save_rule_heatmap(
-        self,
-        rules=None,
-        dirname="heatmap",
-        filename="rules_prop.png",
-        abs=True,
-        local=True,
-        symbol=True,
-    ):
-        if rules is None:
-            rules = self.rules["rule"][0]
-        plt.rcParams["figure.figsize"] = (70, 50)
-        dfs = [r.clone().detach().cpu().numpy() for r in rules]
-        # min max in seed
-        if local:
-            vmin = rules.min()
-            vmax = rules.max()
-            fig, axes = plt.subplots(nrows=5, ncols=6)
-            for df, ax in zip(dfs, axes.flat):
-                pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
-                fig.colorbar(pc, ax=ax)
-            path = os.path.join(dirname, f"local_{filename}")
-            plt.savefig(path, bbox_inches="tight")
-            plt.close()
-
-        # min max in local
-        if symbol:
-            fig, axes = plt.subplots(nrows=5, ncols=6)
-            for df, ax in zip(dfs, axes.flat):
-                vmin = df.min()
-                vmax = df.max()
-                pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
-                fig.colorbar(pc, ax=ax)
-            path = os.path.join(dirname, f"symbol_{filename}")
-            plt.savefig(path, bbox_inches="tight")
-            plt.close()
-
-        # absolute min max
-        if abs:
-            vmin = -100.0
-            vmax = 0.0
-            fig, axes = plt.subplots(nrows=5, ncols=6)
-            for df, ax in zip(dfs, axes.flat):
-                pc = ax.pcolormesh(df, vmin=vmin, vmax=vmax)
-                fig.colorbar(pc, ax=ax)
-            path = os.path.join(dirname, f"global_{filename}")
-            plt.savefig(path, bbox_inches="tight")
-            plt.close()
-
     def entropy(self, key, batch=False, probs=False, reduce="none"):
         assert key == "root" or key == "rule" or key == "unary"
         return self._entropy(
@@ -229,7 +180,7 @@ class NeuralPCFG(PCFG_module):
             return rule_prob
 
         root, unary, rule = roots(), terms(), rules()
-        # root, unary, rule = roots(), self.terms.expand(b, -1, -1), rules()
+        
         # for gradient conflict by using gradients of rules
         if self.training:
             root.retain_grad()

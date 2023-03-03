@@ -114,7 +114,9 @@ class PCFG_base(nn.Module):
                     return self._cky_zero_order(
                         marginals.detach().sum(-1), lens
                     )
-                    # return self._cky_zero_order_tag(marginals.detach(), tag_marginals.detach(), lens)
+                    # return self._cky_zero_order_tag(
+                    #     marginals.detach(), tag_marginals.detach(), lens
+                    # )
             else:
                 viterbi_spans = marginals.nonzero().tolist()
                 for span in viterbi_spans:
@@ -146,7 +148,7 @@ class PCFG_base(nn.Module):
                 Y = stripe(s, n, w - 1, (0, 1))
                 Z = stripe(s, n, w - 1, (1, w), 0)
             X, split = (Y + Z).max(2)
-            x = X + diagonal(marginals, w)
+            x = X + diagonal(marginals, w) # 
             diagonal_copy_(s, x, w)
             diagonal_copy_(p, split + starts.unsqueeze(0) + 1, w)
 

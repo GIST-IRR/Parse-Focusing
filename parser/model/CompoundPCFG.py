@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from parser.model.PCFG_module import PCFG_module
 from parser.modules.res import ResLayer
-from parser.modules.attentions import ScaledDotProductAttention
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 
 from parser.pcfgs.partition_function import PartitionFunction
@@ -32,8 +31,6 @@ class Root_parameterizer(nn.Module):
         root_emb = torch.cat([root_emb, z], -1)
 
         root_prob = self.root_mlp(root_emb).log_softmax(-1)
-        # root_prob = self.root_mlp(root_emb)
-        # root_prob = torch.matmul(root_prob, z).log_softmax(-1)
         return root_prob
 
 class Term_parameterizer(nn.Module):
@@ -56,11 +53,6 @@ class Term_parameterizer(nn.Module):
     def forward(self, z):
         b = z.shape[0]
         term_emb = self.term_emb.unsqueeze(0).expand(b, -1, -1)
-        # z_expand = z.unsqueeze(1).expand(-1, self.T, -1)
-        # term_emb = torch.cat([term_emb, z_expand], -1)
-        # term_emb = term_emb * z.unsqueeze(1)
-
-        # term_prob = self.term_mlp(term_emb).log_softmax(-1)
         term_prob = self.term_mlp(term_emb)
         return term_prob
 
@@ -74,8 +66,6 @@ class Nonterm_parameterizer(nn.Module):
         self.NT_T = self.NT + self.T
 
         self.nonterm_emb = nn.Parameter(torch.randn(self.NT, self.s_dim))
-
-        # self.nonterm_mlp = nn.Linear(self.s_dim + self.z_dim, (self.NT_T) ** 2)
         self.nonterm_mlp = nn.Linear(self.s_dim, (self.NT_T) ** 2)
 
     def forward(self, z):
