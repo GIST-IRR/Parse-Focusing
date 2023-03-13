@@ -16,9 +16,9 @@ import math
 import os
 
 
-class ExTermNPCFG(PCFG_module):
+class ExNTNPCFG(PCFG_module):
     def __init__(self, args):
-        super(ExTermNPCFG, self).__init__()
+        super(ExNTNPCFG, self).__init__()
         self.pcfg = PCFG()
         self.part = PartitionFunction()
         self.args = args
@@ -38,9 +38,12 @@ class ExTermNPCFG(PCFG_module):
         self.lang = getattr(args, "lang", "english")
         self.factor = getattr(args, "factor", "right")
 
-        self.nonterms = Nonterm_parameterizer(
-            self.s_dim, self.NT, self.T, self.temperature
+        self.terms = Term_parameterizer(
+            self.s_dim, self.T, self.V
         )
+        # self.nonterms = Nonterm_parameterizer(
+        #     self.s_dim, self.NT, self.T, self.temperature
+        # )
         self.root = Root_parameterizer(
             self.s_dim, self.NT
         )
@@ -51,11 +54,18 @@ class ExTermNPCFG(PCFG_module):
         # I find this is important for neural/compound PCFG. if do not use this initialization, the performance would get much worser.
         self._initialize()
 
-        terms_checkpoint = torch.load(
-            f'weights/{self.lang}_xbar_{self.factor}_term_pd.pt')
-        terms_checkpoint = self.lognorm_strict(terms_checkpoint)
-        self.terms = torch.nn.Parameter(terms_checkpoint)
-        self.terms.requires_grad_(False)
+        nonterms_checkpoint = torch.load(
+            f'weights/{self.lang}_xbar_{self.factor}_rule_pd.pt')
+        nonterms_shape = nonterms_checkpoint.shape
+        nonterms_checkpoint = nonterms_checkpoint.reshape(
+            nonterms_shape[0], nonterms_shape[1] * nonterms_shape[2]
+        )
+
+        nonterms_checkpoint = self.lognorm_strict(nonterms_checkpoint)
+        nonterms_checkpoint = nonterms_checkpoint.reshape(*nonterms_shape)
+
+        self.nonterms = torch.nn.Parameter(nonterms_checkpoint)
+        self.nonterms.requires_grad_(False)
 
     def lognorm_strict(self, x, eps=-1e9):
         x = (x / x.sum(-1, keepdims=True)).log()
@@ -220,8 +230,14 @@ class ExTermNPCFG(PCFG_module):
             rule_prob = rule_prob.expand(b, *rule_prob.shape)
             return rule_prob
 
+        def terms():
+            term_prob = self.terms()
+            term_prob = term_prob.expand(b, self.T, self.V)
+            return term_prob
+
         # root, unary, rule = roots(), terms(), rules()
-        root, unary, rule = roots(), self.terms.expand(b, -1, -1), rules()
+        root, unary, rule = roots(), terms(), \
+            self.nonterms.expand(b, -1, -1, -1)
         # for gradient conflict by using gradients of rules
         if self.training:
             pass
