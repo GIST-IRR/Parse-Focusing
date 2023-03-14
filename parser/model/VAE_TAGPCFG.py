@@ -82,85 +82,193 @@ class Term_parameterizer(nn.Module):
         # term_prob = self.term_mlp(z).log_softmax(-1)
         return term_prob
 
-class EncodingLayer(nn.Module):
-    def __init__(
-        self, V, w_dim, NT, T, dim_feedforward=2048, num_heads=8
-    ) -> None:
-        super().__init__()
-        self.V = V
-        self.w_dim = w_dim
-        NT_T = NT + T
-
-        self.w_emb = nn.Embedding(self.V, self.w_dim)
-        self.self_attn = MultiheadAttention(
-            self.w_dim, num_heads,
-            batch_first=True
-        )
-
-        self.self_norm = nn.LayerNorm(self.w_dim)
-
-        self.enc = nn.Sequential(
-            nn.Linear(self.w_dim, dim_feedforward),
-            nn.ReLU(),
-            # nn.Dropout(0.1),
-            nn.Linear(dim_feedforward, self.w_dim),
-        )
-        self.enc_norm = nn.LayerNorm(self.w_dim)
-
-        # self.cross_attn = MultiheadAttention(
-        #     self.w_dim, num_heads,
-        #     batch_first=True
-        # )
-        # self.cross_norm = nn.LayerNorm(self.w_dim)
-
-        # self.dec = nn.Sequential(
-        #     nn.Linear(self.w_dim, dim_feedforward),
-        #     nn.ReLU(),
-        #     # nn.Dropout(0.1),
-        #     nn.Linear(dim_feedforward, self.w_dim),
-        # )
-        # self.dec_norm = nn.LayerNorm(self.w_dim)
+class VectorQuantizer(nn.Module):
+    def __init__(self, num_embeddings, embedding_dim, commitment_cost):
+        super(VectorQuantizer, self).__init__()
         
-        self.classifier = nn.Linear(self.w_dim, T)
-    
-    def forward(self, x, term_emb):
-        b = x.shape[0]
-        x = self.w_emb(x)
+        self._embedding_dim = embedding_dim
+        self._num_embeddings = num_embeddings
+        
+        self._embedding = nn.Embedding(self._num_embeddings, self._embedding_dim)
+        self._embedding.weight.data.uniform_(-1/self._num_embeddings, 1/self._num_embeddings)
+        self._commitment_cost = commitment_cost
 
-        attn_output = self.self_attn(x, x, x)[0]
-        # attn_output = self.dropout(attn_output)
-        x = self.self_norm(x + attn_output)
+    def forward(self, inputs):
+        # convert inputs from BCHW -> BHWC
+        inputs = inputs.permute(0, 2, 3, 1).contiguous()
+        input_shape = inputs.shape
+        
+        # Flatten input
+        flat_input = inputs.view(-1, self._embedding_dim)
+        
+        # Calculate distances
+        distances = (torch.sum(flat_input**2, dim=1, keepdim=True) 
+                    + torch.sum(self._embedding.weight**2, dim=1)
+                    - 2 * torch.matmul(flat_input, self._embedding.weight.t()))
+            
+        # Encoding
+        encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
+        encodings = torch.zeros(encoding_indices.shape[0], self._num_embeddings, device=inputs.device)
+        encodings.scatter_(1, encoding_indices, 1)
+        
+        # Quantize and unflatten
+        quantized = torch.matmul(encodings, self._embedding.weight).view(input_shape)
+        
+        # Loss
+        e_latent_loss = F.mse_loss(quantized.detach(), inputs)
+        q_latent_loss = F.mse_loss(quantized, inputs.detach())
+        loss = q_latent_loss + self._commitment_cost * e_latent_loss
+        
+        quantized = inputs + (quantized - inputs).detach()
+        avg_probs = torch.mean(encodings, dim=0)
+        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
+        
+        # convert quantized from BHWC -> BCHW
+        return loss, quantized.permute(0, 3, 1, 2).contiguous(), perplexity, encodings
 
-        # term = self.term_norm(self.term(x)).mean(dim=1, keepdim=True)
-        enc = self.enc_norm(x + self.enc(x))
+class EncoderRNN(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size, n_layers=1, bidirectional=True):
+        super(EncoderRNN, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.output_size = output_size
+        self.n_layers = n_layers
+        self.bidirectional = bidirectional
 
-        # cross = self.cross_attn(term_emb.expand(b, -1, -1), enc, enc)[0]
-        # dec_term = term_emb.expand(b, -1, -1)
-        # cross = self.cross_attn(enc, dec_term, dec_term)[0]
-        # cross = self.cross_norm(enc + cross)
+        self.embed = nn.Embedding(input_size, hidden_size)
+        self.gru = nn.GRU(hidden_size, hidden_size, n_layers, dropout=0.1, bidirectional=bidirectional)
+        self.o2p = nn.Linear(hidden_size, output_size * 2)
 
-        # dec = self.dec_norm(cross + self.dec(cross))
-        # cs = self.batch_cosine_similarity(dec, dec_term)
+    def forward(self, input):
+        embedded = self.embed(input).unsqueeze(1)
 
-        # label = cs.softmax(-1)
-        # cs = cs.max(-1)[0]
+        output, hidden = self.gru(embedded, None)
+        # mean loses positional info?
+        #output = torch.mean(output, 0).squeeze(0) #output[-1] # Take only the last value
+        output = output[-1]#.squeeze(0)
+        if self.bidirectional:
+            output = output[:, :self.hidden_size] + output[: ,self.hidden_size:] # Sum bidirectional outputs
+        else:
+            output = output[:, :self.hidden_size]
 
-        term = self.classifier(enc).softmax(-1)
-        # dec tensor contain the combination of term embedding vectors
-        # these vectors are used to generate the term probability
-        # cs tensor is maximum of cosine similarity between the dec tensor and term embedding vectors, that means selected term
-        # in the losses, we maximize the cs to decrease the difference between the dec and term embedding vectors
-        return term
+        ps = self.o2p(output)
+        mu, logvar = torch.chunk(ps, 2, dim=1)
+        z = self.sample(mu, logvar)
+        return mu, logvar, z
 
-    def batch_cosine_similarity(self, x1, x2):
-        num = (x1.unsqueeze(2) * x2.unsqueeze(1)).sum(-1)
-        denom = (((x1**2).sum(-1)**.5).unsqueeze(2) * \
-            ((x2**2).sum(-1)**.5).unsqueeze(1))
-        return num / denom
+    def sample(self, mu, logvar):
+        eps = torch.randn(mu.size()).to(mu.device)
+        std = torch.exp(logvar / 2.0)
+        return mu + eps * std
 
-class TAGPCFG(PCFG_module):
+class DecoderRNN(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size, n_layers=1, word_dropout=1.):
+        super(DecoderRNN, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.output_size = output_size
+        self.n_layers = n_layers
+        self.word_dropout = word_dropout
+
+        self.embed = nn.Embedding(output_size, hidden_size)
+        self.gru = nn.GRU(hidden_size + input_size, hidden_size, n_layers)
+        self.z2h = nn.Linear(input_size, hidden_size)
+        self.i2h = nn.Linear(hidden_size + input_size, hidden_size)
+        self.h2o = nn.Linear(hidden_size * 2, hidden_size)
+        self.out = nn.Linear(hidden_size + input_size, output_size)
+        #self.out = nn.Linear(hidden_size, output_size)
+
+    def sample(self, output, temperature, max_sample=True):
+        if max_sample:
+            # Sample top value only
+            top_i = output.data.topk(1)[1][0][0]
+
+        else:
+            # Sample from the network as a multinomial distribution
+            output_dist = output.data.view(-1).div(temperature).exp()
+            top_i = torch.multinomial(output_dist, 1)[0]
+
+        input = torch.LongTensor([top_i]).to(output.device)
+        return input, top_i
+
+    def forward(self, z, inputs, temperature):
+        n_steps = inputs.size(0)
+        outputs = torch.zeros(n_steps, 1, self.output_size).to(inputs.device)
+
+        input = torch.LongTensor([SOS_token]).to(inputs.device)
+
+        hidden = self.z2h(z).unsqueeze(0).repeat(self.n_layers, 1, 1)
+
+        for i in range(n_steps):
+            output, hidden = self.step(i, z, input, hidden)
+            outputs[i] = output
+
+            use_word_dropout = torch.rand() < self.word_dropout
+            if use_word_dropout and i < (n_steps - 1):
+                unk_input = torch.LongTensor([UNK_token]).to(inputs.device)
+                input = unk_input
+                continue
+
+            use_teacher_forcing = torch.rand() < temperature
+            if use_teacher_forcing:
+                input = inputs[i]
+            else:
+                input, top_i = self.sample(output, temperature)
+
+        return outputs.squeeze(1)
+
+    def generate(self, z, n_steps, temperature):
+        outputs = torch.zeros(n_steps, 1, self.output_size).to(z.device)
+
+        input = torch.LongTensor([SOS_token]).to(z.device)
+
+        hidden = self.z2h(z).unsqueeze(0).repeat(self.n_layers, 1, 1)
+
+        for i in range(n_steps):
+            output, hidden = self.step(i, z, input, hidden)
+            outputs[i] = output
+            input, top_i = self.sample(output, temperature)
+            #if top_i == EOS: break
+        return outputs.squeeze(1)
+
+    def step(self, s, z, input, hidden):
+        # print('[DecoderRNN.step] s =', s, 'z =', z.size(), 'i =', input.size(), 'h =', hidden.size())
+        input = F.relu(self.embed(input))
+        input = torch.cat((input, z), 1)
+        input = input.unsqueeze(0)
+        output, hidden = self.gru(input, hidden)
+        output = output.squeeze(0)
+        output = torch.cat((output, z), 1)
+        output = self.out(output)
+        return output, hidden
+
+class VAE(nn.Module):
+    def __init__(self, encoder=None, decoder=None):
+        super(VAE, self).__init__()
+        if encoder is None:
+            self.encoder = EncoderRNN()
+        else:
+            self.encoder = encoder
+        
+        if decoder is None:
+            self.decoder = DecoderRNN()
+        else:
+            self.decoder = decoder
+
+        self.steps_seen = 0
+
+    def encode(self, inputs):
+        m, l, z = self.encoder(inputs)
+        return m, l, z
+
+    def forward(self, inputs, targets, temperature=1.0):
+        m, l, z = self.encoder(inputs)
+        decoded = self.decoder(z, targets, temperature)
+        return m, l, z, decoded
+
+class VAE_TAGPCFG(PCFG_module):
     def __init__(self, args):
-        super(TAGPCFG, self).__init__()
+        super(VAE_TAGPCFG, self).__init__()
         self.pcfg = PCFG()
         self.part = PartitionFunction()
         self.args = args
@@ -244,7 +352,7 @@ class TAGPCFG(PCFG_module):
         x = input["word"]
         b, n = x.shape[:2]
 
-        term_z = self.attn(x, self.terms.term_emb)
+        term_z, cs = self.attn(x, self.terms.term_emb)
 
         root, rule, unary = \
             self.root(term_z), \
@@ -262,7 +370,7 @@ class TAGPCFG(PCFG_module):
             "root": root,
             "rule": rule,
             "unary_attention": term_z,
-            # "cosine_similarity": cs.mean(-1),
+            "cosine_similarity": cs.mean(-1),
         }
 
     def loss(self, input, partition=False, max_depth=0, soft=False):
@@ -277,7 +385,7 @@ class TAGPCFG(PCFG_module):
         label = F.one_hot(
             self.rules['unary_attention'].argmax(-1), num_classes=self.T
         )
-        # terms = terms.masked_fill(~label.bool(), -1e9)
+        # terms.masked_fill(~label.bool(), -1e9)
 
         attn = self.rules['unary_attention'].log().masked_fill(~label.bool(), -1e9)
         terms = terms + attn
@@ -292,7 +400,8 @@ class TAGPCFG(PCFG_module):
                 return (-result["partition"] + self.rules["kl"]).mean(), self.pf.mean()
             result["partition"] = result["partition"] - self.pf
         # depth-conditioned inside algorithm
-        return (-result["partition"]).mean()
+        return (-result["partition"]).mean() \
+            + self.rules['cosine_similarity'].mean()
 
     def evaluate(self, input, decode_type, depth=0, depth_mode=False, **kwargs):
         rules = self.forward(input)

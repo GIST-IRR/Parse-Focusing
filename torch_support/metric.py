@@ -75,6 +75,28 @@ def pairwise_mutual_information(p, normalize=False):
                 normalize=normalize
             )
             mi_mat[j, i] = mi_mat[i, j]
+        
+def n_pairwise_mutual_information(p, normalize=False):
+    n, k, _ = p.shape
+    p = p.reshape(n, -1)
+    k = k**2
+    mi_mat = torch.zeros(n, n)
+
+    idx = [i for i in range(n) for j in range(i+1, n)]
+    idx_t = [j for i in range(n) for j in range(i+1, n)]
+    p_i = p[idx].unsqueeze(2)
+    p_j = p[idx_t].unsqueeze(1)
+    p_i_j = p_i + p_j
+    p_i_j = torch.logaddexp(p_i_j, p_i_j.permute(0, 2, 1)) \
+        - torch.tensor([2], device=p_i_j.device).log()
+    p_i_j = p_i_j - p_i_j.logsumexp(dim=2, keepdim=True).logsumexp(dim=1, keepdim=True)
+
+    m = (n**2 - n) // 2
+    p_i = p_i_j.logsumexp(dim=2).unsqueeze(2).expand(m, k, k).reshape(m, -1)
+    p_j = p_i_j.logsumexp(dim=1).unsqueeze(1).expand(m, k, k).reshape(m, -1)
+
+    mi = kl_div(p_i_j.reshape(m, -1), p_i + p_j)
+    return mi
 
 def IID_loss(x_out, x_tf_out, lamb=1.0, EPS=sys.float_info.epsilon):
     # has had softmax applied

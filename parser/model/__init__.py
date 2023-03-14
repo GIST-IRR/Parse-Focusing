@@ -10,6 +10,14 @@ from .NormNPCFG import NormNPCFG
 from .ExTermNPCFG import ExTermNPCFG
 from .ExternalNPCFG import ExternalNPCFG
 from .TAGPCFG import TAGPCFG
+from .ExNTNPCFG import ExNTNPCFG
+from .ExNTTAGPCFG import ExNTTAGPCFG
+from .StrictCNPCFG import StrictCNPCFG
+from .CSNPCFG import CSNPCFG
+from .MINPCFG import MINPCFG
+from .CSCNPCFG import CSCNPCFG
+from .CSWNPCFG import CSWNPCFG
+from .L2NPCFG import L2NPCFG
 
 
 __all__ = [

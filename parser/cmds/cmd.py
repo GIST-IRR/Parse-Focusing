@@ -247,6 +247,20 @@ class CMD(object):
                         dirname=heatmap_dir,
                         filename=f"rule_dist_{self.iter}.png",
                     )
+                    tensor_to_heatmap(
+                        self.model.rules["nonterm_cs"],
+                        batch=False,
+                        dirname=heatmap_dir,
+                        filename=f"nonterm_cs_{self.iter}.png",
+                        vmin=0
+                    )
+                    tensor_to_heatmap(
+                        self.model.rules["term_cs"],
+                        batch=False,
+                        dirname=heatmap_dir,
+                        filename=f"term_cs_{self.iter}.png",
+                        vmin=0
+                    )
             
             self.log_step(self.iter, start=0, step=1000)
 
