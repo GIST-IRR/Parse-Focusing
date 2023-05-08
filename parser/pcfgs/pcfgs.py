@@ -79,8 +79,16 @@ class PCFG_base(nn.Module):
         #     return self._inside(rules, lens)
         if topk:
             return self._inside_topk(rules, terms, lens, topk=topk, **kwargs)
+        elif 'tree' in kwargs.keys():
+            # return self._inside_one(rules, terms, lens, **kwargs)
+            return self._inside_one_new(rules, terms, lens, **kwargs)
         else:
-            return self._inside(rules, terms, lens, **kwargs)
+            if isinstance(kwargs.get("w2T", None), torch.Tensor):
+                return self._inside_weighted(rules, terms, lens, **kwargs)
+            else:
+                return self._inside(rules, terms, lens, **kwargs)
+
+        return result
 
     def _get_prediction(
         self,

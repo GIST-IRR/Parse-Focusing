@@ -23,13 +23,18 @@ import torch.nn as nn
 #         return self.layers(x) + x
 
 class ResLayer(nn.Module):
-    def __init__(self, in_dim, out_dim):
+    def __init__(self, in_dim, out_dim, activation='relu'):
         super(ResLayer, self).__init__()
+        if activation == 'relu':
+            activation = nn.ReLU
+        elif activation == 'tanh':
+            activation = nn.Tanh
+            
         self.linear = nn.Sequential(
             nn.Linear(in_dim, out_dim),
-            nn.ReLU(),
+            activation(),
             nn.Linear(out_dim, out_dim),
-            nn.ReLU(),
+            activation(),
         )
 
     def forward(self, x):

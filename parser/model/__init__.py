@@ -18,6 +18,11 @@ from .MINPCFG import MINPCFG
 from .CSCNPCFG import CSCNPCFG
 from .CSWNPCFG import CSWNPCFG
 from .L2NPCFG import L2NPCFG
+from .KLNPCFG import KLNPCFG
+from .ENPCFG import ENPCFG
+from .LSNPCFG import LSNPCFG
+from .SDNPCFG import SDNPCFG
+from .TSDNPCFG import TSDNPCFG
 
 
 __all__ = [

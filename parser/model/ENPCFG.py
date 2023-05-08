@@ -2,18 +2,18 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.nn.modules.activation import MultiheadAttention
 
 from parser.pcfgs.partition_function import PartitionFunction
 from ..pcfgs.pcfg import PCFG
-from ..modules.res import ResLayer
 from .PCFG_module import (
     PCFG_module,
-    # Term_parameterizer,
-    # Nonterm_parameterizer,
-    # Root_parameterizer
+    Term_parameterizer,
+    Nonterm_parameterizer,
+    Root_parameterizer
 )
-from torch_support.metric import *
+from ..modules.res import ResLayer
+
+from torch_support.metric import entropy, pairwise_kl_divergence
 
 import matplotlib.pyplot as plt
 import math
@@ -21,19 +21,22 @@ import os
 
 
 class Term_parameterizer(nn.Module):
-    def __init__(self, dim, T, V):
+    def __init__(self, dim, T, V, term_emb=None):
         super().__init__()
         self.dim = dim
         self.T = T
         self.V = V
 
-        self.term_emb = nn.Parameter(torch.randn(self.T, self.dim))
+        if term_emb is None:
+            self.term_emb = nn.Parameter(torch.randn(self.T, self.dim))
+        else:
+            self.term_emb = term_emb
 
         self.term_mlp = nn.Sequential(
             nn.Linear(self.dim, self.dim),
             ResLayer(self.dim, self.dim),
             ResLayer(self.dim, self.dim),
-            # nn.Linear(self.dim, self.V),
+            nn.Linear(self.dim, self.V),
         )
 
     def forward(self):
@@ -42,7 +45,7 @@ class Term_parameterizer(nn.Module):
         return term_prob
 
 class Nonterm_parameterizer(nn.Module):
-    def __init__(self, dim, NT, T, temperature=2.) -> None:
+    def __init__(self, dim, NT, T, temperature=2., nonterm_emb=None) -> None:
         super().__init__()
         self.dim = dim
         self.NT = NT
@@ -51,23 +54,34 @@ class Nonterm_parameterizer(nn.Module):
 
         self.temperature = temperature
 
-        self.nonterm_emb = nn.Parameter(torch.randn(self.NT, self.dim))
+        if nonterm_emb is None:
+            self.nonterm_emb = nn.Parameter(torch.randn(self.NT, self.dim))
+        else:
+            self.nonterm_emb = nonterm_emb
 
         self.rule_mlp = nn.Linear(self.dim, (self.NT_T) ** 2)
+        # self.rule_mlp = nn.Sequential(
+        #     nn.Linear(self.dim, self.dim),
+        #     ResLayer(self.dim, self.dim),
+        #     ResLayer(self.dim, self.dim),
+        #     # nn.Linear(self.dim, self.V),
+        # )
 
     def forward(self):
         nonterm_prob = self.rule_mlp(self.nonterm_emb)
         # nonterm_prob = (nonterm_prob/self.temperature).log_softmax(-1)
-        # nonterm_prob = (nonterm_prob/self.temperature)
         return nonterm_prob
 
 class Root_parameterizer(nn.Module):
-    def __init__(self, dim, NT):
+    def __init__(self, dim, NT, root_emb=None):
         super().__init__()
         self.dim = dim
         self.NT = NT
 
-        self.root_emb = nn.Parameter(torch.randn(1, self.dim))
+        if root_emb is None:
+            self.root_emb = nn.Parameter(torch.randn(1, self.dim))
+        else:
+            self.root_emb = root_emb
 
         self.root_mlp = nn.Sequential(
             nn.Linear(self.dim, self.dim),
@@ -81,50 +95,9 @@ class Root_parameterizer(nn.Module):
         # root_prob = root_prob.log_softmax(-1)
         return root_prob
 
-class EncodingLayer(nn.Module):
-    r"""Encoded word embeddings
-    """
-    def __init__(
-        self, V, w_dim, NT, T, dim_feedforward=2048, num_heads=8
-    ) -> None:
-        super().__init__()
-        self.V = V
-        self.w_dim = w_dim
-
-        self.w_emb = nn.Embedding(self.V, self.w_dim)
-        self.self_attn = MultiheadAttention(
-            self.w_dim, num_heads,
-            batch_first=True
-        )
-
-        self.self_norm = nn.LayerNorm(self.w_dim)
-
-        self.enc = nn.Sequential(
-            nn.Linear(self.w_dim, dim_feedforward),
-            nn.ReLU(),
-            # nn.Dropout(0.1),
-            nn.Linear(dim_feedforward, self.w_dim),
-        )
-        self.enc_norm = nn.LayerNorm(self.w_dim)
-        # self.classifier = nn.Linear(self.w_dim, T)
-    
-    def forward(self, x):
-        b = x.shape[0]
-        x = self.w_emb(x)
-
-        attn_output = self.self_attn(x, x, x)[0]
-        # attn_output = self.dropout(attn_output)
-        x = self.self_norm(x + attn_output)
-
-        # term = self.term_norm(self.term(x)).mean(dim=1, keepdim=True)
-        enc = self.enc_norm(x + self.enc(x))
-
-        # term = self.classifier(enc).softmax(-1)
-        return enc
-
-class CSWNPCFG(PCFG_module):
+class ENPCFG(PCFG_module):
     def __init__(self, args):
-        super(CSWNPCFG, self).__init__()
+        super(ENPCFG, self).__init__()
         self.pcfg = PCFG()
         self.part = PartitionFunction()
         self.args = args
@@ -141,21 +114,25 @@ class CSWNPCFG(PCFG_module):
         self.temperature = getattr(args, "temperature", 1.0)
         self.smooth = getattr(args, "smooth", 0.0)
 
-        self.lamb = getattr(args, "lamb", [0.0, 0.0])
-        
+        self.term_emb = nn.Parameter(torch.randn(self.T, self.s_dim))
+        self.nonterm_emb = nn.Parameter(torch.randn(self.NT, self.s_dim))
+        self.root_emb = nn.Parameter(torch.randn(1, self.s_dim))
+
         self.terms = Term_parameterizer(
-            self.s_dim, self.T, self.V
+            self.s_dim, self.T, self.V,
+            term_emb=self.term_emb
         )
         self.nonterms = Nonterm_parameterizer(
-            self.s_dim, self.NT, self.T, self.temperature
+            self.s_dim, self.NT, self.T, self.temperature,
+            nonterm_emb=self.nonterm_emb
         )
         self.root = Root_parameterizer(
-            self.s_dim, self.NT
+            self.s_dim, self.NT,
+            root_emb=self.root_emb
         )
 
-        self.enc = EncodingLayer(
-            self.V, self.s_dim, self.NT, self.T
-        )
+        self.child_mlp = nn.Linear(self.s_dim*2, self.s_dim)
+        self.word_emb = nn.Parameter(torch.randn(self.V, self.s_dim))
 
         # Partition function
         self.mode = getattr(args, "mode", "length_unary")
@@ -261,40 +238,75 @@ class CSWNPCFG(PCFG_module):
         x = input["word"]
         b, n = x.shape[:2]
 
-        # word embedding (self-attention)
-        term = self.terms()
-        x = self.enc(x)
+        # root = self.root()
+        # nonterm = self.nonterms()
+        # term = self.terms()
 
-        unary_cs = pairwise_cosine_similarity(
-            term, self.enc.w_emb.weight
-        )
-        unary = unary_cs.log_softmax(-1)
-        # unary_mask = F.gumbel_softmax(unary, hard=True, dim=0)
-        # unary = unary + unary_mask.log().clamp(-1e9)
-        unary = unary.expand(b, *unary.shape)
+        # R_N = root @ self.nonterm_emb.T
 
-        # term_emb = self.terms.term_emb.expand(b, *self.terms.term_emb.shape)
-        # unary_mask = pairwise_cosine_similarity(x, term_emb, batch=True)
-        # unary_mask = unary_mask.abs().log_softmax(-1)
-        # unary_mask = F.gumbel_softmax(unary_mask, hard=True)
+        # C = torch.cat([self.nonterm_emb, self.term_emb], dim=0)
+        # C = torch.cat([
+        #     C.unsqueeze(1).repeat(1, self.NT_T, 1),
+        #     C.unsqueeze(0).repeat(self.NT_T, 1, 1)
+        # ], dim=-1).reshape(self.NT_T**2, -1)
+        # C = self.child_mlp(C)
 
-        # root, unary, rule = roots(), terms(), rules()
-        # nonterm_cs = pairwise_cosine_similarity(self.nonterms.nonterm_emb)
-        # term_cs = pairwise_cosine_similarity(self.terms.term_emb)
-        root, rule = self.root(), self.nonterms()
-        # nonterm_cs = pairwise_cosine_similarity(rule)
-        # term_cs = pairwise_cosine_similarity(unary)
+        # N_C = nonterm @ C.T
+        # T_w = term @ self.word_emb.T
 
-        root = root.log_softmax(-1).expand(b, self.NT)
-        # unary = unary.log_softmax(-1).expand(b, *unary.shape)
-        rule = rule.log_softmax(-1).reshape(self.NT, self.NT_T, self.NT_T)
+        # R2N = R_N.log_softmax(-1).expand(b, self.NT)
+        
+        # N2C = N_C.log_softmax(-1).expand(b, self.NT, self.NT_T**2)
+        # N2C = N2C.reshape(b, self.NT, self.NT_T, self.NT_T)
+
+        # C2N = N_C.log_softmax(0)
+        # C2N = C2N.reshape(self.NT, self.NT_T, self.NT_T)
+
+        # T2w = T_w.log_softmax(-1).expand(b, self.T, self.V)
+
+        # w2T = T_w.log_softmax(0)
+
+        # root = R2N
+        # rule = N2C
+        # unary = T2w
+
+        R_N = self.root()
+        root = R_N.log_softmax(-1)
+        root = root.expand(b, self.NT)
+
+        R_N_norm = torch.linalg.norm(R_N, dim=-1)
+
+        N_C = self.nonterms()
+        N2C = N_C.log_softmax(-1) # N -> N+T N+T
+        C2N = N_C.log_softmax(0) # N+T N+T -> N
+
+        rule = N2C.reshape(self.NT, self.NT_T, self.NT_T)
+        C2N = C2N.reshape(*rule.shape)
+
         rule = rule.expand(b, *rule.shape)
+        N_C_norm = torch.linalg.norm(N_C, dim=-1)
+
+        T_w = self.terms()
+        T2w = T_w.log_softmax(-1) # T -> w
+        w2T = T_w.log_softmax(0)  # w -> T
+
+        unary = T2w.expand(b, *T_w.shape)
+        T_w_norm = torch.linalg.norm(T_w, dim=-1)
         
         # for gradient conflict by using gradients of rules
         if self.training:
             root.retain_grad()
             rule.retain_grad()
             unary.retain_grad()
+            # # Masking backward hook
+            # def masking(grad):
+            #     # b, n = x.shape
+            #     # indices = x[..., None].expand(-1, -1, self.T).permute(0, 2, 1)
+            #     # mask = indices.new_zeros(b, self.T, self.V).scatter_(2, indices, 1.)
+            #     print("in the hook!")
+            #     return grad * 2
+
+            # unary.register_hook(masking)
 
         self.clear_metrics() # clear metrics becuase we have new rules
 
@@ -302,9 +314,10 @@ class CSWNPCFG(PCFG_module):
             "unary": unary,
             "root": root,
             "rule": rule,
-            # "nonterm_cs": nonterm_cs,
-            # "term_cs": term_cs
-        }
+            "w2T": w2T,
+            "C2N": C2N,
+            # 'kl': torch.tensor(0, device=self.device)
+        }, R_N_norm, N_C_norm, T_w_norm
 
     def partition_function(self, max_length=200):
         return self.part(
@@ -320,9 +333,9 @@ class CSWNPCFG(PCFG_module):
             duplicated_index = counts.where(counts > 1)
 
     def loss(self, input, partition=False, soft=False):
-        # b = input['word'].shape[0]
+        b = input['word'].shape[0]
         # Calculate rule distributions
-        self.rules = self.forward(input)
+        self.rules, R_N_norm, N_C_norm, T_w_norm = self.forward(input)
         terms = self.term_from_unary(
             input["word"], self.rules["unary"],
             smooth=self.smooth
@@ -346,26 +359,63 @@ class CSWNPCFG(PCFG_module):
             # result["partition"] = result["partition"] - sent["partition"]
             result["partition"] = result["partition"] - self.pf
         else:
+            # C2N = self.rules["C2N"].expand(b, *self.rules["C2N"].shape)
+            # w2T = self.rules["w2T"].expand(b, *self.rules["w2T"].shape)
+            # w2T = self.term_from_unary(
+            #     input["word"], w2T, smooth=self.smooth
+            # )
+
+            # Gumbel-max trick
+            # C2N_mask = F.gumbel_softmax(
+            #     C2N, hard=True, dim=1
+            # )
+            # w2T_mask = F.gumbel_softmax(w2T, hard=True)
+
+            # Argmax
+            # C2N_mask = F.one_hot(
+            #     C2N.argmax(1), num_classes=self.NT
+            # ).permute(0, 3, 1, 2)
+            # w2T_mask = F.one_hot(w2T.argmax(-1), num_classes=self.T)
+            
             result = self.pcfg(
                 self.rules, terms, lens=input["seq_len"],
+                # C2N=C2N_mask,
+                # w2T=w2T_mask,
                 dropout=self.dropout
             )
 
-        return -result["partition"]
-            # + self.lamb[0] * self.rules['nonterm_cs'].abs().mean() \
-            # + self.lamb[1] * self.rules['term_cs'].abs().mean()
+        # c2n_ent = entropy(self.rules["C2N"].reshape(self.NT, -1).T)
+        # w2t_ent = entropy(w2T)
+        # c2n_kl = pairwise_kl_divergence(
+        #     self.rules["C2N"].reshape(self.NT, -1).T)
+        # w2T_kl = pairwise_kl_divergence(w2T, batch=True)
+        # return -result["partition"] \
+        #     + w2t_ent.mean().expand(b, 1) \
+        #     + c2n_ent.mean().expand(b, 1)
+        return -result["partition"] \
+            + 0.1 * N_C_norm.var().expand(b, 1) / 2 \
+            + 0.1 * T_w_norm.var().expand(b, 1) / 2 \
+            # + 0.001 * R_N_norm.mean().expand(b, 1) / 2 \
+            # + 0.01 * N_C_norm.mean().expand(b, 1) / 2 \
+            # + 0.5 * T_w_norm.mean().expand(b, 1) / 2 \
+            # - w2T_kl.mean().expand(b, 1) / 2 \
+            # + w2T_kl.var().expand(b, 1) / 2
+            # + 0.01 * w2t_ent.mean().expand(b, 1)
 
     def evaluate(self, input, decode_type, depth=0, **kwargs):
-        self.rules = self.forward(input)
+        self.rules, _, _, _ = self.forward(input)
         # NPCFG have same rules for all sentences
         # We need to calculate rules only once
         b = input["word"].shape[0]
-        # rules = {k: v.expand(b, *v.shape[1:]) for k, v in self.rules.items()}
-        terms = self.term_from_unary(input["word"], self.rules["unary"])
+        self.rules.pop("w2T")
+        self.rules.pop("C2N")
+
+        rules = {k: v.expand(b, *v.shape[1:]) for k, v in self.rules.items()}
+        terms = self.term_from_unary(input["word"], rules["unary"])
 
         if decode_type == "viterbi":
             result = self.pcfg(
-                self.rules,
+                rules,
                 terms,
                 lens=input["seq_len"],
                 viterbi=True,
@@ -375,7 +425,7 @@ class CSWNPCFG(PCFG_module):
             # result = self.pcfg(self.rules, self.rules['unary'], lens=input['seq_len'], viterbi=True, mbr=False)
         elif decode_type == "mbr":
             result = self.pcfg(
-                self.rules,
+                rules,
                 terms,
                 lens=input["seq_len"],
                 viterbi=False,
@@ -388,7 +438,7 @@ class CSWNPCFG(PCFG_module):
 
         if depth > 0:
             result["depth"] = self.part(
-                self.rules, depth, mode="length", depth_output="full"
+                rules, depth, mode="length", depth_output="full"
             )
             result["depth"] = result["depth"].exp()
 

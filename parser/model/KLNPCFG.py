@@ -1,8 +1,6 @@
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.nn.modules.activation import MultiheadAttention
 
 from parser.pcfgs.partition_function import PartitionFunction
 from ..pcfgs.pcfg import PCFG
@@ -33,7 +31,7 @@ class Term_parameterizer(nn.Module):
             nn.Linear(self.dim, self.dim),
             ResLayer(self.dim, self.dim),
             ResLayer(self.dim, self.dim),
-            # nn.Linear(self.dim, self.V),
+            nn.Linear(self.dim, self.V),
         )
 
     def forward(self):
@@ -81,50 +79,9 @@ class Root_parameterizer(nn.Module):
         # root_prob = root_prob.log_softmax(-1)
         return root_prob
 
-class EncodingLayer(nn.Module):
-    r"""Encoded word embeddings
-    """
-    def __init__(
-        self, V, w_dim, NT, T, dim_feedforward=2048, num_heads=8
-    ) -> None:
-        super().__init__()
-        self.V = V
-        self.w_dim = w_dim
-
-        self.w_emb = nn.Embedding(self.V, self.w_dim)
-        self.self_attn = MultiheadAttention(
-            self.w_dim, num_heads,
-            batch_first=True
-        )
-
-        self.self_norm = nn.LayerNorm(self.w_dim)
-
-        self.enc = nn.Sequential(
-            nn.Linear(self.w_dim, dim_feedforward),
-            nn.ReLU(),
-            # nn.Dropout(0.1),
-            nn.Linear(dim_feedforward, self.w_dim),
-        )
-        self.enc_norm = nn.LayerNorm(self.w_dim)
-        # self.classifier = nn.Linear(self.w_dim, T)
-    
-    def forward(self, x):
-        b = x.shape[0]
-        x = self.w_emb(x)
-
-        attn_output = self.self_attn(x, x, x)[0]
-        # attn_output = self.dropout(attn_output)
-        x = self.self_norm(x + attn_output)
-
-        # term = self.term_norm(self.term(x)).mean(dim=1, keepdim=True)
-        enc = self.enc_norm(x + self.enc(x))
-
-        # term = self.classifier(enc).softmax(-1)
-        return enc
-
-class CSWNPCFG(PCFG_module):
+class KLNPCFG(PCFG_module):
     def __init__(self, args):
-        super(CSWNPCFG, self).__init__()
+        super(KLNPCFG, self).__init__()
         self.pcfg = PCFG()
         self.part = PartitionFunction()
         self.args = args
@@ -142,19 +99,21 @@ class CSWNPCFG(PCFG_module):
         self.smooth = getattr(args, "smooth", 0.0)
 
         self.lamb = getattr(args, "lamb", [0.0, 0.0])
-        
+
+        # self.word_emb = nn.Embedding(self.V, self.s_dim)
+        # self.w2t = nn.Linear(self.s_dim, self.s_dim)
+
         self.terms = Term_parameterizer(
             self.s_dim, self.T, self.V
         )
         self.nonterms = Nonterm_parameterizer(
             self.s_dim, self.NT, self.T, self.temperature
         )
+
+        # self.c2n = nn.Linear(self.s_dim * 2, self.s_dim)
+
         self.root = Root_parameterizer(
             self.s_dim, self.NT
-        )
-
-        self.enc = EncodingLayer(
-            self.V, self.s_dim, self.NT, self.T
         )
 
         # Partition function
@@ -261,33 +220,16 @@ class CSWNPCFG(PCFG_module):
         x = input["word"]
         b, n = x.shape[:2]
 
-        # word embedding (self-attention)
-        term = self.terms()
-        x = self.enc(x)
+        root, unary, rule = self.root().log_softmax(-1), \
+            self.terms().log_softmax(-1), \
+            self.nonterms().log_softmax(-1)
+        
+        rule_kl = pairwise_kl_divergence(rule)
+        unary_kl = pairwise_kl_divergence(unary)
 
-        unary_cs = pairwise_cosine_similarity(
-            term, self.enc.w_emb.weight
-        )
-        unary = unary_cs.log_softmax(-1)
-        # unary_mask = F.gumbel_softmax(unary, hard=True, dim=0)
-        # unary = unary + unary_mask.log().clamp(-1e9)
+        root = root.expand(b, self.NT)
         unary = unary.expand(b, *unary.shape)
-
-        # term_emb = self.terms.term_emb.expand(b, *self.terms.term_emb.shape)
-        # unary_mask = pairwise_cosine_similarity(x, term_emb, batch=True)
-        # unary_mask = unary_mask.abs().log_softmax(-1)
-        # unary_mask = F.gumbel_softmax(unary_mask, hard=True)
-
-        # root, unary, rule = roots(), terms(), rules()
-        # nonterm_cs = pairwise_cosine_similarity(self.nonterms.nonterm_emb)
-        # term_cs = pairwise_cosine_similarity(self.terms.term_emb)
-        root, rule = self.root(), self.nonterms()
-        # nonterm_cs = pairwise_cosine_similarity(rule)
-        # term_cs = pairwise_cosine_similarity(unary)
-
-        root = root.log_softmax(-1).expand(b, self.NT)
-        # unary = unary.log_softmax(-1).expand(b, *unary.shape)
-        rule = rule.log_softmax(-1).reshape(self.NT, self.NT_T, self.NT_T)
+        rule = rule.reshape(self.NT, self.NT_T, self.NT_T)
         rule = rule.expand(b, *rule.shape)
         
         # for gradient conflict by using gradients of rules
@@ -302,8 +244,8 @@ class CSWNPCFG(PCFG_module):
             "unary": unary,
             "root": root,
             "rule": rule,
-            # "nonterm_cs": nonterm_cs,
-            # "term_cs": term_cs
+            "nonterm_cs": rule_kl,
+            "term_cs": unary_kl
         }
 
     def partition_function(self, max_length=200):
@@ -351,9 +293,16 @@ class CSWNPCFG(PCFG_module):
                 dropout=self.dropout
             )
 
-        return -result["partition"]
-            # + self.lamb[0] * self.rules['nonterm_cs'].abs().mean() \
-            # + self.lamb[1] * self.rules['term_cs'].abs().mean()
+        nonterm_cs = self.rules['nonterm_cs'].mean()
+        term_cs = self.rules['term_cs'].mean()
+        nonterm_kl_var = self.rules['nonterm_cs'].var()
+        term_kl_var = self.rules['term_cs'].var()
+
+        return -result["partition"] \
+            - self.lamb[0] * nonterm_cs \
+            - self.lamb[1] * term_cs \
+            + 0.1 * nonterm_kl_var / 2 \
+            + 0.1 * term_kl_var / 2
 
     def evaluate(self, input, decode_type, depth=0, **kwargs):
         self.rules = self.forward(input)

@@ -11,13 +11,16 @@ import numpy as np
 
 
 class Term_parameterizer(nn.Module):
-    def __init__(self, dim, T, V):
+    def __init__(self, dim, T, V, term_emb=None):
         super().__init__()
         self.dim = dim
         self.T = T
         self.V = V
 
-        self.term_emb = nn.Parameter(torch.randn(self.T, self.dim))
+        if term_emb is None:
+            self.term_emb = nn.Parameter(torch.randn(self.T, self.dim))
+        else:
+            self.term_emb = term_emb
 
         self.term_mlp = nn.Sequential(
             nn.Linear(self.dim, self.dim),
