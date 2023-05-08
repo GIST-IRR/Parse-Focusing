@@ -24,12 +24,14 @@ class VocabularyOption(Option):
                  max_size=None,
                  min_freq=None,
                  padding='<pad>',
-                 unknown='<unk>'):
+                 unknown='<unk>',
+                 mask='<mask>'):
         super().__init__(
             max_size=max_size,
             min_freq=min_freq,
             padding=padding,
-            unknown=unknown
+            unknown=unknown,
+            mask=mask
         )
 
 
@@ -76,7 +78,7 @@ class Vocabulary(object):
         vocab.to_word(5) # int to str
     """
     
-    def __init__(self, max_size=None, min_freq=None, padding='<pad>', unknown='<unk>'):
+    def __init__(self, max_size=None, min_freq=None, padding='<pad>', unknown='<unk>', mask='<mask>'):
         r"""
         
         :param int max_size: `Vocabulary` 的最大大小, 即能存储词的最大数量
@@ -96,6 +98,7 @@ class Vocabulary(object):
         self.word_count = Counter()
         self.unknown = unknown
         self.padding = padding
+        self.mask = mask
         self._word2idx = None
         self._idx2word = None
         self.rebuild = True
@@ -212,6 +215,8 @@ class Vocabulary(object):
                 self._word2idx[self.padding] = len(self._word2idx)
             if (self.unknown is not None) and (self.unknown != self.padding):
                 self._word2idx[self.unknown] = len(self._word2idx)
+            if self.mask is not None and self.mask != self.padding and self.mask != self.unknown:
+                self._word2idx[self.mask] = len(self._word2idx)
         
         max_size = min(self.max_size, len(self.word_count)) if self.max_size else None
         words = self.word_count.most_common(max_size)
@@ -507,6 +512,7 @@ class Vocabulary(object):
         f.write(f'min_freq\t{self.min_freq}\n')
         f.write(f'unknown\t{self.unknown}\n')
         f.write(f'padding\t{self.padding}\n')
+        f.write(f'mask\t{self.mask}\n')
         f.write(f'rebuild\t{self.rebuild}\n')
         f.write('\n')
         # idx: 如果idx为-2, 说明还没有进行build; 如果idx为-1，说明该词未编入
