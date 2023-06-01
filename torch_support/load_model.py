@@ -1,5 +1,7 @@
+import sys
 import inspect
-import parser.model
+import importlib
+from pathlib import Path
 
 try:
     import torch_optimizer as optim
@@ -9,25 +11,29 @@ except:
     except:
         raise ImportError("Could not import torch.optim or torch_optimizer")
 
-def get_model(model_name, args=None, device='cpu'):
-    # Get the module of model from the path
-    # model_modules = {
-    #     name: obj for name, obj in inspect.getmembers(parser.model)
-    #     if inspect.ismodule(obj)
-    # }
-    # try:
-    #     module = model_modules[model_name]
-    # except:
-    #     raise KeyError("Model name not found in model directory")
 
+model_dir_path = Path("model")
+
+def set_model_dir(path):
+    global model_dir_path
+    model_dir_path = Path(path)
+
+def get_model(model_name, args=None, device='cpu'):
+    '''
+    Description:
+
+    '''
     # Please match the python filename and the model class name
     # Get the class of model from the module
-    models = {
-        name: obj for name, obj in inspect.getmembers(parser.model)
-        if inspect.isclass(obj)
-    }
+    model_path = str(model_dir_path / (model_name+'.py'))
+
     try:
-        model = models[model_name]
+        spec = importlib.util.spec_from_file_location(model_name, model_path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[model_name] = module
+        spec.loader.exec_module(module)
+
+        model = module.__dict__[model_name]
     except:
         raise KeyError("Model name not found in model module")
     
