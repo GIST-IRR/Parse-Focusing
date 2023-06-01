@@ -12,11 +12,14 @@ except:
         raise ImportError("Could not import torch.optim or torch_optimizer")
 
 
-model_dir_path = Path("model")
+model_dir_path = "model"
 
 def set_model_dir(path):
     global model_dir_path
-    model_dir_path = Path(path)
+    assert isinstance(path, str), "Path should be a string"
+    # if path is consisted of /, replace it with .
+    model_dir_path = path.replace('/', '.')
+    return model_dir_path
 
 def get_model(model_name, args=None, device='cpu'):
     '''
@@ -25,15 +28,14 @@ def get_model(model_name, args=None, device='cpu'):
     '''
     # Please match the python filename and the model class name
     # Get the class of model from the module
-    model_path = str(model_dir_path / (model_name+'.py'))
+    # model_path = str(model_dir_path / (model_name+'.py'))
+    model_path = model_dir_path + '.' + model_name
 
     try:
-        spec = importlib.util.spec_from_file_location(model_name, model_path)
-        module = importlib.util.module_from_spec(spec)
+        module = importlib.import_module(model_path)
         sys.modules[model_name] = module
-        spec.loader.exec_module(module)
-
         model = module.__dict__[model_name]
+
     except:
         raise KeyError("Model name not found in model module")
     
