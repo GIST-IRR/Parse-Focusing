@@ -25,6 +25,9 @@ class Metric(object):
 class UF1(Metric):
     def __init__(self, eps=1e-8, device=torch.device("cuda")):
         super(UF1, self).__init__()
+        self.prec = 0.0
+        self.reca = 0.0
+
         self.f1 = 0.0
         self.evalb = 0.0
         self.n = 0.0
@@ -113,6 +116,8 @@ class UF1(Metric):
                     prec = 1.
             f1 = 2 * prec * reca / (prec + reca + 1e-8)
             ex = 1 if (1 - f1) < (self.eps*2) else 0
+            self.prec += prec
+            self.reca += reca
             self.f1 += f1
             self.ex += ex
             self.n += 1
@@ -134,6 +139,14 @@ class UF1(Metric):
                     self.length_f1[length] = f1
                     self.length_ex[length] = ex
                     self.length_n[length] = 1
+
+    @property
+    def sentence_prec(self):
+        return self.prec / self.n
+    
+    @property
+    def sentence_reca(self):
+        return self.reca / self.n
 
     @property
     def sentence_uf1(self):
