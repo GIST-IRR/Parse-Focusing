@@ -8,12 +8,29 @@ import torch.nn.functional as F
 def entropy(p):
     return - torch.sum(p.exp() * p, dim=-1)
 
+def cross_entropy(p, q):
+    return - torch.sum(p.exp() * q, dim=-1)
+
 def kl_div(p, q):
     return torch.sum(p.exp() * (p - q), dim=-1)
 
 def jensen_shannon_divergence(p, q):
     m = 0.5 * (p + q)
     return 0.5 * (kl_div(p, m) + kl_div(q, m))
+
+def pairwise_cross_entropy(p, q=None, log=False, batch=False):
+    if batch:
+        b, n, k = p.shape
+    else:
+        n, k = p.shape
+
+    if q is None:
+        q, m = p, n
+
+    if batch:
+        return -torch.sum(p.unsqueeze(2).exp() * q.unsqueeze(1), dim=-1)
+    else:
+        return -torch.sum(p.unsqueeze(1).exp() * q.unsqueeze(0), dim=-1)
 
 def pairwise_kl_divergence(p, q=None, log=False, batch=False):
     if batch:
