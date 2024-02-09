@@ -131,20 +131,20 @@ def create_dataset_from_trees(trees, depth=False, cnf='none', collapse=False):
         pos_array.append(pos)
         gold_trees.append(factorize(tree))
         if cnf == 'both':
-            left_tree = trees_to_cnf(col_tree, factor='left')
+            left_tree = trees_to_cnf(col_tree, factor='left')[0]
             gold_trees_left.append(factorize(left_tree))
-            right_tree = trees_to_cnf(col_tree, factor='right')
+            right_tree = trees_to_cnf(col_tree, factor='right')[0]
             gold_trees_right.append(factorize(right_tree))
             if depth:
                 depth_left.append(left_tree.height())
                 depth_right.append(right_tree.height())
         elif cnf == 'left':
-            left_tree = trees_to_cnf(col_tree, factor='left')
+            left_tree = trees_to_cnf(col_tree, factor='left')[0]
             gold_trees_left.append(factorize(left_tree))
             if depth:
                 depth_left.append(left_tree.height())
         elif cnf == 'right':
-            right_tree = trees_to_cnf(col_tree, factor='right')
+            right_tree = trees_to_cnf(col_tree, factor='right')[0]
             gold_trees_right.append(factorize(right_tree))
             if depth:
                 depth_right.append(right_tree.height())
@@ -336,9 +336,10 @@ def create_probability_distribution(
     print("Done.")
 
 def redistribution(args):
-    create_probability_distribution(
-        args.dir, args.prefix, 'train', factor=args.factor)
-    exit()
+    # create_probability_distribution(
+    #     args.dir, args.prefix, 'train', factor=args.factor)
+    # exit()
+
     # Get path for the dataset
     train_file = os.path.join(args.dir, f'{args.prefix}-train.txt')
     valid_file = os.path.join(args.dir, f'{args.prefix}-valid.txt')
@@ -423,22 +424,32 @@ def redistribution(args):
         os.makedirs(args.cache_path, exist_ok=True)
         print(f'DONE.')
 
+    # save sentence
+    def save_sentences(trees, tag):
+        sent = [' '.join(t.leaves())+'\n' for t in trees]
+        with open(os.path.join(args.cache_path, f"{tag}.txt"), "w") as f:
+            for s in sent:
+                f.write(s)
+
+    save_sentences(train_trees, 'train')
+    save_sentences(valid_trees, 'valid')
+    save_sentences(test_trees, 'test')
+    exit()
+
     # Saving datasets
+    def save_trees(trees, tag):
+        tree_size = len(trees)
+        result = create_dataset_from_trees(trees[:tree_size], depth=args.target_depth, cnf=args.cnf, collapse=args.collapse)
+        path = os.path.join(
+            args.cache_path, f"{args.prefix}-{args.criterion}-{tag}.pkl"
+        )
+        with open(path, "wb") as f:
+            pickle.dump(result, f)
+
     print('[INFO] Saving dataset...', end='')
-    tree_size = len(train_trees) // 8
-    result = create_dataset_from_trees(train_trees[:tree_size], depth=args.target_depth, cnf=args.cnf, collapse=args.collapse)
-    with open(os.path.join(args.cache_path, f"{args.prefix}-{args.criterion}-train.pkl"), "wb") as f:
-        pickle.dump(result, f)
-
-    tree_size = len(valid_trees) // 8
-    result = create_dataset_from_trees(valid_trees[:tree_size], depth=args.target_depth, cnf=args.cnf, collapse=args.collapse)
-    with open(os.path.join(args.cache_path, f"{args.prefix}-{args.criterion}-valid.pkl"), "wb") as f:
-        pickle.dump(result, f)
-
-    tree_size = len(test_trees) // 8
-    result = create_dataset_from_trees(test_trees[:tree_size], depth=args.target_depth, cnf=args.cnf, collapse=args.collapse)
-    with open(os.path.join(args.cache_path, f"{args.prefix}-{args.criterion}-test.pkl"), "wb") as f:
-        pickle.dump(result, f)
+    save_trees(train_trees, 'train')
+    save_trees(valid_trees, 'valid')
+    save_trees(test_trees, 'test')
     print('DONE.')
 
     print('Dataset distribution DONE!')

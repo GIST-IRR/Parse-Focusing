@@ -1,3 +1,4 @@
+.gitignore
 data/
 log/
 .vscode/
@@ -13,3 +14,20 @@ heatmap/
 weights/
 *.dataset
 *.pkl
+model/
+trees/
+EVALB/
+scheduler/
+vocab/
+*.png
+*.svg
+noised_output/
+evalb-test/
+gold_trees/
+parsed/
+parsed_span/
+test_dist/
+evalb_test.txt
+pred.txt
+*.gif
+*.prog

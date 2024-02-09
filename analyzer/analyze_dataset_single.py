@@ -1,6 +1,16 @@
+#!/bin/usr/env python3
+"""
+Name: analyze_dataset.py
+Description: Analyze ratio for type of binary rules on the gold parse trees.
+binary rules are composed with four types of rules(NT_NT, NT_T, T_NT, T_T).
+In case that the ratio of NT_NT and T_T is higher than NT_T and T_NT,
+the tree is called balanced tree.
+On the other hands, the tree is called unbalanced tree.
+"""
 import os
 import pickle
 from pathlib import Path
+from collections import defaultdict
 
 from nltk.tree import Tree
 from easydict import EasyDict as edict
@@ -24,7 +34,7 @@ def count_rules(trees, root=False):
         if root:
             tree = tree[0]
         nt_nt, nt_t, t_nt, t_t = check_rules(tree)
-        
+
         total = nt_nt + nt_t + t_nt + t_t
         br = (nt_nt + t_t) / total
         ur = (nt_t + t_nt) / total
@@ -47,15 +57,16 @@ def count_rules(trees, root=False):
     T_NT_ratio = T_NT / (NT_NT + NT_T + T_NT + T_T)
     T_T_ratio = T_T / (NT_NT + NT_T + T_NT + T_T)
 
-    print(f'NT_NT: {NT_NT} ({NT_NT_ratio:.2%})')
-    print(f'NT_T: {NT_T} ({NT_T_ratio:.2%})')
-    print(f'T_NT: {T_NT} ({T_NT_ratio:.2%})')
-    print(f'T_T: {T_T} ({T_T_ratio:.2%})')
-    print(f'balanced: {balanced_ratio:.2%}')
-    print(f'unbalanced: {unbalanced_ratio:.2%}')
-    print(f'total_balance: {total_balance_ratio:.2%}')
+    print(f"NT_NT: {NT_NT} ({NT_NT_ratio:.2%})")
+    print(f"NT_T: {NT_T} ({NT_T_ratio:.2%})")
+    print(f"T_NT: {T_NT} ({T_NT_ratio:.2%})")
+    print(f"T_T: {T_T} ({T_T_ratio:.2%})")
+    print(f"balanced: {balanced_ratio:.2%}")
+    print(f"unbalanced: {unbalanced_ratio:.2%}")
+    print(f"total_balance: {total_balance_ratio:.2%}")
 
     return NT_NT, NT_T, T_NT, T_T
+
 
 def check_rules(tree):
     check_terminal = [False, False]
@@ -83,6 +94,7 @@ def check_rules(tree):
         NT_NT += 1
     return NT_NT, NT_T, T_NT, T_T
 
+
 def check_rules_nonbinary(tree):
     check_terminal = [False] * len(tree)
     NT_NT = 0
@@ -109,6 +121,7 @@ def check_rules_nonbinary(tree):
         NT_NT += 1
     return NT_NT, NT_T, T_NT, T_T
 
+
 # get tree and count types of rules
 def get_tree(tree):
     if isinstance(tree, str):
@@ -116,9 +129,12 @@ def get_tree(tree):
     else:
         return [get_tree(t) for t in tree]
 
+
 def get_trees(file, factor=None):
     trees = []
-    with open(file, 'r') as f:
+    if isinstance(file, str):
+        file = Path(file)
+    with file.open("r") as f:
         for line in f:
             tree = Tree.fromstring(line)
             if factor is not None:
@@ -129,82 +145,67 @@ def get_trees(file, factor=None):
             trees.append(tree)
     return trees
 
-# Get path for the dataset
-args = {
-    'dir': 'data/data.clean',
-    'prefix': 'korean',
-    'postfix': 'valid',
-}
-args = edict(args)
 
-langs = [
-    'edit-english',
-    'edit-chinese',
-    'basque',
-    'french',
-    'german',
-    'hebrew',
-    'hungarian',
-    'korean',
-    'polish',
-    'swedish',
-]
+def get_pos(tree, mode="both"):
+    pos = tree.treepositions("leaves")
+    if mode == "both":
+        return [(tree[p[:-1]].label(), tree[p]) for p in pos]
+    elif mode == "pos":
+        return [tree[p[:-1]].label() for p in pos]
+    elif mode == "leaves":
+        return [tree[p] for p in pos]
+    # Counter(list(filter(lambda x: x[1] == "buch", pos_n_word)))
 
-# Binary rules parse tree
-# for lang in langs:
-#     args.prefix = lang
-#     data_file = os.path.join(args.dir, f'{args.prefix}-{args.postfix}.txt')
-#     # valid_file = os.path.join(args.dir, f'{args.prefix}-valid.txt')
-#     # test_file = os.path.join(args.dir, f'{args.prefix}-test.txt')
 
-#     # Load dataset
-#     print('[INFO] Load dataset...', end='')
-#     # trees_left = get_trees(data_file, factor='left')
-#     # trees_right = get_trees(data_file, factor='right')
-#     trees = get_trees(data_file)
-#     # print('train...', end='')
-#     # valid_trees = get_trees(valid_file)
-#     # print('valid...', end='')
-#     # test_trees = get_trees(test_file)
-#     # print('test...', end='')
-#     print('DONE.')
+def main(args):
+    data_path = Path(args.dataset)
 
-#     # print(f'[{args.prefix}-{args.postfix}-left]')
-#     # count_rules(trees_left)
+    # Load dataset
+    print("[INFO] Load dataset...", end="")
+    trees = get_trees(data_path, factor=args.factor)
+    print("DONE.")
 
-#     # print(f'[{args.prefix}-{args.postfix}-right]')
-#     # count_rules(trees_right)
-    
-#     print(f'[{args.prefix}-{args.postfix}]')
-#     count_rules(trees)
+    # Tree balancing
+    print(f"[{data_path.stem}]")
+    count_rules(trees)
 
-# Non-binary rules parse trees
-# for lang in langs:
-#     args.prefix = lang
-#     data_file = os.path.join(args.dir, f'{args.prefix}-{args.postfix}.txt')
+    # Mean Length
+    lens = [len(t.leaves()) for t in trees]
+    lens = [l for l in lens if l < 40]
+    mean = np.mean(lens)
+    print(f"Mean length: {mean:.2f}")
 
-#     # Load dataset
-#     trees = get_trees(data_file)
-#     lens = [len(t.leaves()) for t in trees]
-#     lens = [l for l in lens if l < 40]
-#     mean = np.mean(lens)
-    
-#     print(f'[{args.prefix}-{args.postfix}]')
-#     print(f'mean: {mean:.2f}')
+    # Vocabulary
+    thr = 60
+    vocab = defaultdict(int)
+    for t in trees:
+        for w in t.leaves():
+            vocab[w] += 1
+    vocab = sorted(vocab.items(), key=lambda x: x[1], reverse=True)
+    vocab_sum = sum([e[1] for e in vocab])
 
-# Predicted parse trees
-dir_path = sorted(Path('log').glob('n_*_std_orig_long_seed'))
-file_name = 'parse_tree.pickle'
-for parent_path in dir_path:
-    if parent_path.name == 'n_english_std_orig_seed':
-        continue
-    print(f'[{parent_path}]')
-    for child_path in parent_path.iterdir():
-        if not child_path.is_dir():
-            continue
-        print(f'[{child_path.name}]')
-        with open(child_path / file_name, 'rb') as f:
-            trees = pickle.load(f)
-        trees = trees['trees']
-        pred_trees = [span_to_tree(t['pred_tree']) for t in trees]
-        count_rules(pred_trees, root=False)
+    def unknown_masking(vocab, thr):
+        unk_count = 0
+        for i, e in enumerate(vocab):
+            if i >= thr:
+                unk_count += e[1]
+        vocab = vocab[:thr]
+        vocab.insert(0, ("<unk>", unk_count))
+        return vocab
+
+    vocab = unknown_masking(vocab, thr)
+    vocab_ratio = [(e[0], e[1] / vocab_sum) for e in vocab]
+
+    print(f"Vocabulary size: {len(vocab)}")
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--dataset", type=str, default="data/data.clean/edit-english-train.txt"
+    )
+    parser.add_argument("--factor", type=str, default=None)
+    args = parser.parse_args()
+    main(args)

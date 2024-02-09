@@ -90,7 +90,7 @@ def stripe_grammar_rules(x, n, w, offset=0):
     new_stride.append(stride[1])
     new_stride.extend(stride[2:])
     return x.as_strided(size=(x.shape[0], n, w, *x.shape[2:]),
-                            stride=new_stride, storage_offset=0)
+                            stride=new_stride, storage_offset=offset*stride[1])
 
 def stripe_grammar_rules_add_(x, y, n, w, offset=0):
     x, seq_len = x.contiguous(), x.size(2)

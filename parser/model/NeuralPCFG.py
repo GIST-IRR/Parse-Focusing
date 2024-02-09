@@ -1,6 +1,5 @@
 import numpy as np
 import torch
-import torch.nn as nn
 
 from parser.pcfgs.partition_function import PartitionFunction
 from ..pcfgs.pcfg import PCFG
@@ -8,12 +7,8 @@ from .PCFG_module import (
     PCFG_module,
     Term_parameterizer,
     Nonterm_parameterizer,
-    Root_parameterizer
+    Root_parameterizer,
 )
-
-import matplotlib.pyplot as plt
-import math
-import os
 
 
 class NeuralPCFG(PCFG_module):
@@ -27,7 +22,7 @@ class NeuralPCFG(PCFG_module):
         self.NT = getattr(args, "NT", 30)
         self.T = getattr(args, "T", 60)
         self.NT_T = self.NT + self.T
-        self.V = getattr(args, "V", 10002)
+        self.V = getattr(args, "V", 10003)
 
         self.s_dim = getattr(args, "s_dim", 256)
         self.dropout = getattr(args, "dropout", 0.0)
@@ -35,15 +30,11 @@ class NeuralPCFG(PCFG_module):
         self.temperature = getattr(args, "temperature", 1.0)
         self.smooth = getattr(args, "smooth", 0.0)
 
-        self.terms = Term_parameterizer(
-            self.s_dim, self.T, self.V
-        )
+        self.terms = Term_parameterizer(self.s_dim, self.T, self.V)
         self.nonterms = Nonterm_parameterizer(
             self.s_dim, self.NT, self.T, self.temperature
         )
-        self.root = Root_parameterizer(
-            self.s_dim, self.NT
-        )
+        self.root = Root_parameterizer(self.s_dim, self.NT)
 
         # Partition function
         self.mode = getattr(args, "mode", "length_unary")
@@ -58,9 +49,64 @@ class NeuralPCFG(PCFG_module):
                 yield param
 
     def _initialize(self):
+        # Original Method
         for p in self.parameters():
             if p.dim() > 1:
                 torch.nn.init.xavier_uniform_(p)
+        # # Init with constant 0.0009
+        # for n, p in self.named_parameters():
+        #     n = n.split(".")[0]
+        #     if n == "terms":
+        #         torch.nn.init.constant_(p, 0.001)
+        #     else:
+        #         if p.dim() > 1:
+        #             torch.nn.init.xavier_uniform_(p)
+        # # Init with mean of each layer
+        # for n, p in self.named_parameters():
+        #     if p.dim() > 1:
+        #         torch.nn.init.xavier_uniform_(p)
+        #     if n.split(".")[0] == "terms":
+        #         val = p.mean()
+        #         torch.nn.init.constant_(p, val)
+        # # Init with mean of each layer for all
+        # for p in self.parameters():
+        #     if p.dim() > 1:
+        #         torch.nn.init.xavier_uniform_(p)
+        #     val = p.mean()
+        #     torch.nn.init.constant_(p, val)
+        # # Init with mean of each layer for all & Fix terms
+        # for n, p in self.named_parameters():
+        #     if p.dim() > 1:
+        #         torch.nn.init.xavier_uniform_(p)
+        #     if n.split(".")[0] == "terms":
+        #         val = p.mean()
+        #         torch.nn.init.constant_(p, val)
+        #         p.requires_grad = False
+        # # Init with mean of each layer for nonterminal
+        # for n, p in self.named_parameters():
+        #     if p.dim() > 1:
+        #         torch.nn.init.xavier_uniform_(p)
+        #     if n.split(".")[0] != "terms":
+        #         val = p.mean()
+        #         torch.nn.init.constant_(p, val)
+        #     else:
+        #         p.requires_grad = False
+        # # Init with mean of each layer for nonterminal & Fix terms
+        # for n, p in self.named_parameters():
+        #     if p.dim() > 1:
+        #         torch.nn.init.xavier_uniform_(p)
+        #     val = p.mean()
+        #     torch.nn.init.constant_(p, val)
+        #     if n.split(".")[0] != "terms":
+        #         p.requires_grad = False
+        #
+        # for n, p in self.named_parameters():
+        #     if p.dim() > 1:
+        #         torch.nn.init.xavier_uniform_(p)
+        #     if n.split(".")[0] == "terms":
+        #         val = p.mean()
+        #         torch.nn.init.constant_(p, val)
+        #         p.requires_grad = False
 
     def update_dropout(self, rate):
         self.apply_dropout = self.init_dropout * rate
@@ -105,25 +151,25 @@ class NeuralPCFG(PCFG_module):
             unary = self.rules["unary"]
 
         b = rule.shape[0]
-        
-        tkl = self.kl_div(unary) # KLD for terminal
-        nkl = self.kl_div(rule) # KLD for nonterminal
-        tcs = self.cos_sim(unary) # cos sim for terminal
+
+        tkl = self.kl_div(unary)  # KLD for terminal
+        nkl = self.kl_div(rule)  # KLD for nonterminal
+        tcs = self.cos_sim(unary)  # cos sim for terminal
         ncs = self.cos_sim(
             rule.reshape(b, self.NT, -1)
-        ) # cos sim for nonterminal
-        log_tcs = self.cos_sim(unary, log=True) # log cos sim for terminal
+        )  # cos sim for nonterminal
+        log_tcs = self.cos_sim(unary, log=True)  # log cos sim for terminal
         log_ncs = self.cos_sim(
             rule.reshape(b, self.NT, -1), log=True
-        ) # log cos sim for nonterminal
-        
+        )  # log cos sim for nonterminal
+
         return {
             "kl_term": tkl,
             "kl_nonterm": nkl,
             "cos_term": tcs,
             "cos_nonterm": ncs,
             "log_cos_term": log_tcs,
-            "log_cos_nonterm": log_ncs
+            "log_cos_nonterm": log_ncs,
         }
 
     @property
@@ -156,7 +202,10 @@ class NeuralPCFG(PCFG_module):
 
         def terms():
             term_prob = self.terms()
-            term_prob = term_prob.expand(b, *term_prob.shape)
+            term_prob = term_prob[
+                torch.arange(self.T)[None, None], x[:, :, None]
+            ]
+            # term_prob = term_prob.expand(b, *term_prob.shape)
             return term_prob
 
             # kmeans distribution
@@ -180,12 +229,12 @@ class NeuralPCFG(PCFG_module):
             return rule_prob
 
         root, unary, rule = roots(), terms(), rules()
-        
+
         # for gradient conflict by using gradients of rules
         if self.training:
             root.retain_grad()
             rule.retain_grad()
-            # unary.retain_grad()
+            unary.retain_grad()
             # # Masking backward hook
             # def masking(grad):
             #     # b, n = x.shape
@@ -195,8 +244,9 @@ class NeuralPCFG(PCFG_module):
             #     return grad * 2
 
             # unary.register_hook(masking)
+            pass
 
-        self.clear_metrics() # clear metrics becuase we have new rules
+        self.clear_metrics()  # clear metrics becuase we have new rules
 
         return {
             "unary": unary,
@@ -207,7 +257,7 @@ class NeuralPCFG(PCFG_module):
 
     def partition_function(self, max_length=200):
         return self.part(
-            self.rules, lens=max_length, mode='depth', until_converge=True
+            self.rules, lens=max_length, mode="depth", until_converge=True
         )
 
     def unique_terms(self, terms):
@@ -220,14 +270,17 @@ class NeuralPCFG(PCFG_module):
 
     def loss(self, input, partition=False, soft=False):
         # b = input['word'].shape[0]
+        words = input["word"]
+        # # Sequence permutate randomly
+        # input["word"] = words[:, torch.randperm(words.shape[1])]
+
         # Calculate rule distributions
         self.rules = self.forward(input)
         # terms = torch.randint(0, self.V, input["word"].shape, device=self.device)
         # terms = self.term_from_unary(terms, self.rules["unary"])
-        terms = self.term_from_unary(
-            input["word"], self.rules["unary"],
-            smooth=self.smooth
-        )
+        # terms = self.term_from_unary(
+        #     input["word"], self.rules["unary"], smooth=self.smooth
+        # )
         self.rules["word"] = input["word"]
 
         # Calculate inside algorithm
@@ -247,7 +300,7 @@ class NeuralPCFG(PCFG_module):
 
         if partition:
             result = self.pcfg(
-                self.rules, terms, lens=input["seq_len"], topk=1
+                self.rules, self.rules["unary"], lens=input["seq_len"], topk=1
             )
             # sent = self.pcfg(
             #     self.rules, terms, lens=input["seq_len"]
@@ -263,40 +316,66 @@ class NeuralPCFG(PCFG_module):
             result["partition"] = result["partition"] - self.pf
         else:
             result = self.pcfg(
-                self.rules, terms, lens=input["seq_len"],
-                dropout=self.dropout
+                self.rules,
+                self.rules["unary"],
+                lens=input["seq_len"],
+                dropout=self.dropout,
             )
 
         return -result["partition"]
         # return -result['partition'] + 0.5 * pf['partition']
         # return -output.squeeze(1)
 
-    def evaluate(self, input, decode_type, depth=0, **kwargs):
+    def evaluate(self, input, decode_type, depth=0, label=False, **kwargs):
         self.rules = self.forward(input)
         # NPCFG have same rules for all sentences
         # We need to calculate rules only once
+
+        # def rule_tmp(xs, ys, p, l, r):
+        #     res = []
+        #     b = rules['rule'].shape[0]
+        #     xs = torch.tensor(xs, device=rules['rule'].device)
+        #     ys = torch.tensor(ys, device=rules['rule'].device)
+        #     xs = xs.repeat(b, 1).T
+        #     ys = ys.repeat(b, 1).T
+        #     for v, w in zip(xs, ys):
+        #         tmp_rule = {
+        #             'root': rules['root'].clone(),
+        #             'rule': rules['rule'].clone(),
+        #             'unary': rules['unary'].clone(),
+        #             'word': input["word"]
+        #         }
+        #         tmp_rule['rule'][:, p, l, r] = v.log()
+        #         tmp_rule['rule'][:, p, r, l] = w.log()
+        #         tmp_res = self.pcfg(tmp_rule, tmp_rule['unary'], lens=input['seq_len'])
+        #         tmp_res = tmp_res['partition']
+        #         res.append(tmp_res)
+        #     return torch.stack(res)
+
         b = input["word"].shape[0]
         rules = {k: v.expand(b, *v.shape[1:]) for k, v in self.rules.items()}
-        terms = self.term_from_unary(input["word"], rules["unary"])
+        # terms = self.term_from_unary(input["word"], rules["unary"])
 
         if decode_type == "viterbi":
             result = self.pcfg(
                 rules,
-                terms,
+                rules["unary"],
                 lens=input["seq_len"],
                 viterbi=True,
                 mbr=False,
-                dropout=self.dropout
+                dropout=self.dropout,
+                label=label,
             )
             # result = self.pcfg(self.rules, self.rules['unary'], lens=input['seq_len'], viterbi=True, mbr=False)
         elif decode_type == "mbr":
             result = self.pcfg(
                 rules,
-                terms,
+                rules["unary"],
                 lens=input["seq_len"],
                 viterbi=False,
                 mbr=True,
-                dropout=self.dropout
+                dropout=self.dropout,
+                label=label,
             )
             # result = self.pcfg(self.rules, self.rules['unary'], lens=input['seq_len'], viterbi=False, mbr=True)
         else:

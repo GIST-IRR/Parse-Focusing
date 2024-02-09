@@ -16,7 +16,9 @@ from torch_support.device_support import set_device
 
 import copy
 
-def train(args2):
+def train(args2, device=None):
+    if device is not None:
+        args2.device = device
     # load config
     args = get_config_from(args2.conf)
     args.update(args2.__dict__)

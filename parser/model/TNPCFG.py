@@ -244,14 +244,14 @@ class TNPCFG(PCFG_module):
             result['partition'] = result['partition'] - self.pf
         return -result['partition'].mean()
 
-    def evaluate(self, input, decode_type, depth=0, **kwargs):
+    def evaluate(self, input, decode_type, depth=0, label=False, **kwargs):
         rules = self.forward(input)
         terms = self.term_from_unary(input['word'], rules['unary'])
 
         if decode_type == 'viterbi':
             assert NotImplementedError
         elif decode_type == 'mbr':
-            result = self.pcfg(rules, terms, lens=input['seq_len'], viterbi=False, mbr=True)
+            result = self.pcfg(rules, terms, lens=input['seq_len'], viterbi=False, mbr=True, label=label)
         else:
             raise NotImplementedError
 

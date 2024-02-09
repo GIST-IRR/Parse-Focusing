@@ -11,11 +11,23 @@ import numpy as np
 
 
 class Term_parameterizer(nn.Module):
-    def __init__(self, dim, T, V, term_emb=None):
+    def __init__(
+        self,
+        dim,
+        T,
+        V,
+        activation="relu",
+        term_emb=None,
+        word_emb=None,
+        softmax=True,
+        norm=None,
+    ):
         super().__init__()
         self.dim = dim
         self.T = T
         self.V = V
+
+        self.softmax = softmax
 
         if term_emb is None:
             self.term_emb = nn.Parameter(torch.randn(self.T, self.dim))
@@ -24,54 +36,142 @@ class Term_parameterizer(nn.Module):
 
         self.term_mlp = nn.Sequential(
             nn.Linear(self.dim, self.dim),
-            ResLayer(self.dim, self.dim),
-            ResLayer(self.dim, self.dim),
+            ResLayer(self.dim, self.dim, activation=activation),
+            ResLayer(self.dim, self.dim, activation=activation),
             nn.Linear(self.dim, self.V),
         )
 
+        if word_emb is not None:
+            self.term_mlp[-1].weight = word_emb
+
+        if norm == "batch":
+            self.norm = nn.BatchNorm1d(self.V)
+        elif norm == "layer":
+            self.norm = nn.LayerNorm(self.V)
+        else:
+            self.register_parameter("norm", None)
+
     def forward(self):
         term_prob = self.term_mlp(self.term_emb)
-        term_prob = term_prob.log_softmax(-1)
+
+        if self.norm is not None:
+            term_prob = self.norm(term_prob)
+
+        if self.softmax:
+            term_prob = term_prob.log_softmax(-1)
         return term_prob
 
+
 class Nonterm_parameterizer(nn.Module):
-    def __init__(self, dim, NT, T, temperature=2.) -> None:
+    def __init__(
+        self,
+        dim,
+        NT,
+        T,
+        temperature=2.0,
+        nonterm_emb=None,
+        term_emb=None,
+        no_rule_layer=False,
+        softmax=True,
+        norm=None,
+    ) -> None:
         super().__init__()
         self.dim = dim
         self.NT = NT
         self.T = T
         self.NT_T = self.NT + self.T
 
+        self.softmax = softmax
+
         self.temperature = temperature
 
-        self.nonterm_emb = nn.Parameter(torch.randn(self.NT, self.dim))
+        if nonterm_emb is None:
+            self.nonterm_emb = nn.Parameter(torch.randn(self.NT, self.dim))
+        else:
+            self.nonterm_emb = nonterm_emb
 
-        self.rule_mlp = nn.Linear(self.dim, (self.NT_T) ** 2)
+        if term_emb is None:
+            self.term_emb = nn.Parameter(torch.randn(self.T, self.dim))
+        else:
+            self.term_emb = term_emb
 
-    def forward(self):
+        if not no_rule_layer:
+            self.rule_mlp = nn.Linear(self.dim, (self.NT_T) ** 2)
+        else:
+            self.register_parameter("rule_mlp", None)
+
+        if norm == "batch":
+            self.norm = nn.BatchNorm1d(self.NT_T**2)
+        elif norm == "layer":
+            self.norm = nn.LayerNorm(self.NT_T**2)
+        else:
+            self.register_parameter("norm", None)
+
+    def forward(self, reshape=False):
         nonterm_prob = self.rule_mlp(self.nonterm_emb)
-        nonterm_prob = (nonterm_prob/self.temperature).log_softmax(-1)
+
+        if self.norm is not None:
+            nonterm_prob = self.norm(nonterm_prob)
+
+        if self.softmax:
+            nonterm_prob = nonterm_prob / self.temperature
+            nonterm_prob = nonterm_prob.log_softmax(-1)
+
+        if reshape:
+            nonterm_prob = nonterm_prob.reshape(self.NT, self.NT_T, self.NT_T)
+
         return nonterm_prob
 
+
 class Root_parameterizer(nn.Module):
-    def __init__(self, dim, NT):
+    def __init__(
+        self,
+        dim,
+        NT,
+        root_emb=None,
+        nonterm_emb=None,
+        activation="relu",
+        softmax=True,
+        norm=None,
+    ):
         super().__init__()
         self.dim = dim
         self.NT = NT
 
-        self.root_emb = nn.Parameter(torch.randn(1, self.dim))
+        self.softmax = softmax
+
+        if root_emb is None:
+            self.root_emb = nn.Parameter(torch.randn(1, self.dim))
+        else:
+            self.root_emb = root_emb
 
         self.root_mlp = nn.Sequential(
             nn.Linear(self.dim, self.dim),
-            ResLayer(self.dim, self.dim),
-            ResLayer(self.dim, self.dim),
+            ResLayer(self.dim, self.dim, activation=activation),
+            ResLayer(self.dim, self.dim, activation=activation),
             nn.Linear(self.dim, self.NT),
         )
 
+        if nonterm_emb is not None:
+            self.root_mlp[-1].weight = nonterm_emb
+
+        if norm == "batch":
+            self.norm = nn.BatchNorm1d(self.NT)
+        elif norm == "layer":
+            self.norm = nn.LayerNorm(self.NT)
+        else:
+            self.register_parameter("norm", None)
+
     def forward(self):
         root_prob = self.root_mlp(self.root_emb)
-        root_prob = root_prob.log_softmax(-1)
+
+        if self.norm is not None:
+            root_prob = self.norm(root_prob)
+
+        if self.softmax:
+            root_prob = root_prob.log_softmax(-1)
         return root_prob
+
 
 class PCFG_module(nn.Module):
     def __init__(self) -> None:
@@ -83,9 +183,10 @@ class PCFG_module(nn.Module):
         self.rules = None
 
     def batch_dot(self, x, y):
-        return (x*y).sum(-1, keepdims=True)
+        return (x * y).sum(-1, keepdims=True)
 
     num_trees_cache = {}
+
     def num_trees(self, len):
         if isinstance(len, torch.Tensor):
             len = len.item()
@@ -97,7 +198,7 @@ class PCFG_module(nn.Module):
             else:
                 num = 0
                 for i in range(1, len):
-                    num += self.num_trees(i) * self.num_trees(len-i)
+                    num += self.num_trees(i) * self.num_trees(len - i)
                 self.num_trees_cache[len] = num
             return num
 
@@ -108,16 +209,16 @@ class PCFG_module(nn.Module):
         b, cat = x.shape[:2]
         cs = x.new_zeros(cat, cat).fill_diagonal_(1).expand(b, -1, -1).clone()
         for i in range(cat):
-            if i == cat-1:
+            if i == cat - 1:
                 continue
-            u = x[:, i:i+1].expand(-1, cat-i-1, -1)
-            o = x[:, i+1:cat]
+            u = x[:, i : i + 1].expand(-1, cat - i - 1, -1)
+            o = x[:, i + 1 : cat]
             if not log:
                 u = u.exp()
                 o = o.exp()
             cosine_score = F.cosine_similarity(u, o, dim=2)
-            cs[:, i, i+1:cat] = cosine_score
-            cs[:, i+1:cat, i] = cosine_score
+            cs[:, i, i + 1 : cat] = cosine_score
+            cs[:, i + 1 : cat, i] = cosine_score
         return cs
 
     def kl_div(self, x):
@@ -125,8 +226,8 @@ class PCFG_module(nn.Module):
         kl = x.new_zeros(b, cat, cat)
         x = x.reshape(b, cat, -1)
         for i in range(cat):
-            t = x[:, i:i+1].expand(-1, cat, -1)
-            kl_score = F.kl_div(t, x, log_target=True, reduction='none')
+            t = x[:, i : i + 1].expand(-1, cat, -1)
+            kl_score = F.kl_div(t, x, log_target=True, reduction="none")
             kl_score = kl_score.sum(-1)
             kl[:, i] = kl_score
         # reverse ratio of kl score
@@ -143,7 +244,7 @@ class PCFG_module(nn.Module):
         x = x.flatten(start_dim=1)
         x = x.abs()
         x = x.sum(-1)
-        x = x / (cat*(cat-1)/2)
+        x = x / (cat * (cat - 1) / 2)
         return x
 
     def cos_sim_max(self, x):
@@ -155,7 +256,7 @@ class PCFG_module(nn.Module):
     def js_div(self, x, y, log_target=False):
         raise NotImplementedError
 
-    def _entropy(self, rule, batch=False, reduce='none', probs=False):
+    def _entropy(self, rule, batch=False, reduce="none", probs=False):
         if rule.dim() == 2:
             rule = rule.unsqueeze(1)
         elif rule.dim() == 3:
@@ -164,7 +265,7 @@ class PCFG_module(nn.Module):
             rule = rule.reshape(*rule.shape[:2], -1)
         else:
             raise ArgumentError(
-                f'Wrong size of rule tensor. The allowed size is (2, 3, 4), but given tensor is {rule.dim()}'
+                f"Wrong size of rule tensor. The allowed size is (2, 3, 4), but given tensor is {rule.dim()}"
             )
 
         b, n_parent, n_children = rule.shape
@@ -172,22 +273,24 @@ class PCFG_module(nn.Module):
             ent = rule.new_zeros((b, n_parent))
             for i in range(b):
                 for j in range(n_parent):
-                    ent[i, j] = dist.categorical.Categorical(logits=rule[i, j]).entropy()
+                    ent[i, j] = dist.categorical.Categorical(
+                        logits=rule[i, j]
+                    ).entropy()
         else:
             rule = rule[0]
-            ent = rule.new_zeros((n_parent, ))
+            ent = rule.new_zeros((n_parent,))
             for i in range(n_parent):
                 ent[i] = dist.categorical.Categorical(logits=rule[i]).entropy()
 
-        if reduce == 'mean':
+        if reduce == "mean":
             ent = ent.mean(-1)
-        elif reduce == 'sum':
+        elif reduce == "sum":
             ent = ent.sum(-1)
 
         if probs:
             emax = self.max_entropy(n_children)
             ent = (emax - ent) / emax
-        
+
         return ent
 
     def update_depth(self, depth):
@@ -195,7 +298,7 @@ class PCFG_module(nn.Module):
 
     def clear_rules_grad(self):
         for k, v in self.rules.items():
-            if k == 'kl':
+            if k == "kl":
                 continue
             v.grad = None
 
@@ -210,14 +313,14 @@ class PCFG_module(nn.Module):
         for p in self.parameters():
             shape = p.grad.shape
             num = p.grad.numel()
-            p.grad = p.grad + grad[total_num:total_num+num].reshape(*shape)
+            p.grad = p.grad + grad[total_num : total_num + num].reshape(*shape)
             total_num += num
 
     def get_rules_grad(self, flatten=False):
         b = 0
         grad = []
         for i, (k, v) in enumerate(self.rules.items()):
-            if k == 'kl':
+            if k == "kl":
                 continue
             if i == 0:
                 b = v.shape[0]
@@ -232,28 +335,28 @@ class PCFG_module(nn.Module):
 
     def get_X_Y_z(self, rule):
         NTs = slice(0, self.NT)
-        Ts = slice(self.NT, self.NT+self.T)
+        Ts = slice(self.NT, self.NT + self.T)
         return rule[:, :, NTs, Ts]
 
     def get_X_y_Z(self, rule):
         NTs = slice(0, self.NT)
-        Ts = slice(self.NT, self.NT+self.T)
+        Ts = slice(self.NT, self.NT + self.T)
         return rule[:, :, Ts, NTs]
 
     def get_X_y_z(self, rule):
-        Ts = slice(self.NT, self.NT+self.T)
+        Ts = slice(self.NT, self.NT + self.T)
         return rule[:, :, Ts, Ts]
 
     def get_rules_grad_category(self):
         b = 0
         grad = {}
         for i, (k, v) in enumerate(self.rules.items()):
-            if k == 'kl':
+            if k == "kl":
                 continue
             if i == 0:
                 b = v.shape[0]
             g = v.grad
-            if k == 'rule':
+            if k == "rule":
                 g = g.reshape(b, g.shape[1], -1)
             grad[k] = g
         return grad
@@ -261,25 +364,22 @@ class PCFG_module(nn.Module):
     def backward_rules(self, grad):
         total_num = 0
         for k, v in self.rules.items():
-            if k == 'kl':
+            if k == "kl":
                 continue
             shape = v.shape
             num = v[0].numel()
             v.backward(
-                grad[:, total_num:total_num+num].reshape(*shape),
-                retain_graph=True
+                grad[:, total_num : total_num + num].reshape(*shape),
+                retain_graph=True,
             )
             total_num += num
 
     def backward_rules_category(self, grad):
         for k, v in grad.items():
-            if k == 'rule':
+            if k == "rule":
                 v = v.reshape(*self.rules[k].shape)
-            self.rules[k].backward(
-                v,
-                retain_graph=True
-            )
-        
+            self.rules[k].backward(v, retain_graph=True)
+
     def term_from_unary(self, word, term, smooth=0.0):
         n = word.shape[1]
         b = term.shape[0]
@@ -290,39 +390,49 @@ class PCFG_module(nn.Module):
 
         # # Smoothing
         word = F.one_hot(word, num_classes=self.V)
-        smooth_weight = word * (1-smooth) + smooth / self.V
+        smooth_weight = word * (1 - smooth) + smooth / self.V
         term = term + smooth_weight.unsqueeze(2).log()
         term = term.logsumexp(-1)
 
         return term
 
-    def soft_backward(self, loss, z_l, optimizer, dambda=1.0, target='rule', mode='projection'):
+    def soft_backward(
+        self,
+        loss,
+        z_l,
+        optimizer,
+        dambda=1.0,
+        target="rule",
+        mode="projection",
+    ):
         def batch_dot(x, y):
-            return (x*y).sum(-1, keepdims=True)
+            return (x * y).sum(-1, keepdims=True)
+
         def projection(x, y):
-            scale = (batch_dot(x, y)/batch_dot(y, y))
+            scale = batch_dot(x, y) / batch_dot(y, y)
             return scale * y, scale
+
         loss = loss.mean()
         z_l = z_l.mean()
         # Get dL_w
         loss.backward(retain_graph=True)
-        if target == 'rule':
-            g_loss = self.get_rules_grad() # main vector
+        if target == "rule":
+            g_loss = self.get_rules_grad()  # main vector
             # g_loss = self.get_rules_grad_category()
             # self.save_rule_heatmap(g_loss[-1][0], dirname='figure', filename='loss_gradient.png', abs=False, symbol=False)
             self.clear_rules_grad()
-        elif target == 'parameter':
+        elif target == "parameter":
             g_loss = self.get_grad()
             g_loss_norm = batch_dot(g_loss, g_loss).sqrt()
         optimizer.zero_grad()
         # Get dZ_l
         z_l.backward(retain_graph=True)
-        if target == 'rule':
+        if target == "rule":
             g_z_l = self.get_rules_grad()
             # g_z_l = self.get_rules_grad_category()
             # self.save_rule_heatmap(g_z_l[-1][0], dirname='figure', filename='z_gradient.png', abs=False, symbol=False)
             self.clear_rules_grad()
-        elif target == 'parameter':
+        elif target == "parameter":
             g_z_l = self.get_grad()
             g_z_l_norm = batch_dot(g_z_l, g_z_l).sqrt()
         optimizer.zero_grad()
@@ -339,13 +449,13 @@ class PCFG_module(nn.Module):
         # tmp_g_z_l = self.get_grad()
         # optimizer.zero_grad()
 
-        if mode == 'both':
-            if target == 'rule':
+        if mode == "both":
+            if target == "rule":
                 g_r = [g_l + dambda * g_z for g_l, g_z in zip(g_loss, g_z_l)]
                 # self.save_rule_heatmap(g_r[-1][0], dirname='figure', filename='rule_gradient.png', abs=False, symbol=False)
-            elif target == 'parameter':
+            elif target == "parameter":
                 g_r = g_loss + dambda * g_z_l
-        elif mode == 'projection':
+        elif mode == "projection":
             g_proj, proj_scale = projection(g_z_l, g_loss)
             g_orth = g_z_l - g_proj
             g_proj_norm = batch_dot(g_proj, g_proj).sqrt()
@@ -357,32 +467,32 @@ class PCFG_module(nn.Module):
             #     if g_z_l[k].dim() == 3:
             #         v = v[None, :, None]
             #     g_r[k] = g_loss[k] + v * g_z_l[k]
-        elif mode == 'orthogonal':
-        # oproj_{dL_w}{dZ_l} = dZ_l - proj_{dL_w}{dZ_l}
+        elif mode == "orthogonal":
+            # oproj_{dL_w}{dZ_l} = dZ_l - proj_{dL_w}{dZ_l}
             g_oproj = g_z_l - projection(g_z_l, g_loss)
-        # dL_BCLs = dL_w + oproj_{dL_w}{dZ_l}
+            # dL_BCLs = dL_w + oproj_{dL_w}{dZ_l}
             g_r = g_loss + g_oproj
 
         # Re-calculate soft BCL
-        if target == 'rule':
+        if target == "rule":
             # self.backward_rules_category(g_r)
             # b = g_loss['root'].shape[0]
             # g_loss = torch.cat([g.reshape(b, -1) for g in g_loss.values()], dim=-1)
             # g_z_l = torch.cat([g.reshape(b, -1) for g in g_z_l.values()], dim=-1)
             # g_r = torch.cat([g.reshape(b, -1) for g in g_r.values()], dim=-1)
             self.backward_rules(g_r)
-        elif target == 'parameter':
+        elif target == "parameter":
             # grad_norm = g_orth_norm.mean()
             # grad_norm.backward()
             self.set_grad(g_r)
 
         return {
-            'g_loss': g_loss,
-            'g_z_l': g_z_l,
-            'g_r': g_r,
+            "g_loss": g_loss,
+            "g_z_l": g_z_l,
+            "g_r": g_r,
             # 'proj_scale': proj_scale,
-            'g_loss_norm': g_loss_norm,
-            'g_z_l_norm': g_z_l_norm
+            "g_loss_norm": g_loss_norm,
+            "g_z_l_norm": g_z_l_norm
             # 'g_proj_norm': g_proj_norm,
             # 'g_orth_norm': g_orth_norm
         }

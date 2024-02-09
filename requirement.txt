@@ -3,6 +3,7 @@ numpy
 torch
 tensorboard
 nltk
-torch_scatter -f https://data.pyg.org/whl/torch-1.11.0+${CUDA}.html
 prettytable
-PyYAML==5.4.1
+PyYAML
+matplotlib
+scikit-learn

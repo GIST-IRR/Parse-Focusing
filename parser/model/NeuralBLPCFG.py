@@ -1,27 +1,26 @@
 import torch
 import torch.nn as nn
-from parser.modules.res import ResLayer
+from ..modules.res import ResLayer
 from ..pcfgs.blpcfg import BLPCFG
 from ..pcfgs.eisner_satta import EisnerSatta
 
 
 class NeuralBLPCFG(nn.Module):
-    def __init__(self, args, dataset):
+    def __init__(self, args):
         super(NeuralBLPCFG, self).__init__()
         self.pcfg = BLPCFG()
         self.args = args
         # number of states
-        self.NT = args.NT
-        self.T = args.T
-        self.V = args.V
+        self.NT = getattr(args, "NT", 15)
+        self.T = getattr(args, "T", 30)
+        self.V = getattr(args, "V", 10000)
         self.NT_T = self.NT + self.T
-        self.dataset = dataset
 
-        self.depth = args.depth
+        self.depth = getattr(args, "depth", 40)
 
         # embedding dimensions
-        self.s_dim = args.s_dim
-        self.r = args.r
+        self.s_dim = getattr(args, "s_dim", 256)
+        self.r = getattr(args, "r", 300)
 
         self.nonterm_emb = nn.Parameter(torch.randn(self.NT, self.s_dim))
         self.nonterm_emb_root = nn.Parameter(torch.randn(self.NT, self.s_dim))
@@ -36,14 +35,16 @@ class NeuralBLPCFG(nn.Module):
         self.r_emb2 = nn.Parameter(torch.randn(self.r, self.s_dim))
         self.r_emb3 = nn.Parameter(torch.randn(self.r, self.s_dim))
 
-        self.beta_mlp = nn.Sequential(nn.Linear(self.s_dim, self.s_dim),
-                                      ResLayer(self.s_dim, self.s_dim),
-                                      ResLayer(self.s_dim, self.s_dim),
-                                      nn.Linear(self.s_dim, self.V)
-                                      )
+        self.beta_mlp = nn.Sequential(
+            nn.Linear(self.s_dim, self.s_dim),
+            ResLayer(self.s_dim, self.s_dim),
+            ResLayer(self.s_dim, self.s_dim),
+            nn.Linear(self.s_dim, self.V)
+        )
 
         self.noninherent_mlp = nn.Sequential(
-                                             nn.Linear(self.s_dim, self.NT_T * 2))
+            nn.Linear(self.s_dim, self.NT_T * 2)
+        )
 
         self.inherent_mlp = nn.Sequential(nn.Linear(self.s_dim, self.NT_T))
 
@@ -59,12 +60,15 @@ class NeuralBLPCFG(nn.Module):
             nn.Linear(self.s_dim, self.s_dim),
             ResLayer(self.s_dim, self.s_dim),
             ResLayer(self.s_dim, self.s_dim),
-            nn.Linear(self.s_dim, self.NT))
+            nn.Linear(self.s_dim, self.NT)
+        )
 
-        self.root_mlp2 = nn.Sequential(nn.Linear(self.s_dim, self.s_dim),
-                                       ResLayer(self.s_dim, self.s_dim),
-                                       ResLayer(self.s_dim, self.s_dim),
-                                       nn.Linear(self.s_dim, self.V))
+        self.root_mlp2 = nn.Sequential(
+            nn.Linear(self.s_dim, self.s_dim),
+            ResLayer(self.s_dim, self.s_dim),
+            ResLayer(self.s_dim, self.s_dim),
+            nn.Linear(self.s_dim, self.V)
+        )
 
         self._initialize()
 
@@ -85,27 +89,28 @@ class NeuralBLPCFG(nn.Module):
             root_emb = self.root_emb
             roots = self.root_mlp(root_emb).log_softmax(-1)
             roots_v = self.root_mlp2(self.nonterm_emb).log_softmax(-1)
-            roots_v = torch.gather(roots_v.unsqueeze(0).expand(b, self.NT, self.V), -1,
-                                   x.unsqueeze(1).expand(-1, self.NT, -1))
-            return roots.expand(b, self.NT).unsqueeze(1) + roots_v.transpose(-1, -2)
+            # roots_v = torch.gather(roots_v.unsqueeze(0).expand(b, self.NT, self.V), -1, x.unsqueeze(1).expand(-1, self.NT, -1))
+            # return roots.expand(b, self.NT).unsqueeze(1) + roots_v.transpose(-1, -2)
+            roots_v = roots_v[torch.arange(self.NT)[None,None], x[...,None]]
+            return roots.expand(b, self.NT).unsqueeze(1) + roots_v
 
         nt_emb = self.nonterm_emb.unsqueeze(0).expand(b, -1, -1)
         x_emb = x_emb.unsqueeze(2).expand(-1, -1, self.NT, -1)
-        nt_x_emb = torch.cat([x_emb,
-                              nt_emb.unsqueeze(1).expand(-1, n, -1, -1)], dim=3
-                             )
+        nt_x_emb = torch.cat([
+            x_emb, nt_emb.unsqueeze(1).expand(-1, n, -1, -1)], dim=3)
 
         head = self.head_mlp(self.head_encoder(nt_x_emb).relu() + x_emb)
-
         head = head.log_softmax(-1)
 
         inherent = self.inherent_mlp(self.r_emb).log_softmax(-1).permute(1, 0).unsqueeze(0).expand(b, -1, -1)
 
-        noninherent_symbol = self.noninherent_mlp(self.r_emb2).log_softmax(-1).reshape(self.r, self.NT_T, 2).transpose(1, 0).unsqueeze(0).expand(b, -1,
-                                                                                                            -1, -1)
+        noninherent_symbol = self.noninherent_mlp(self.r_emb2).log_softmax(-1).reshape(self.r, self.NT_T, 2).transpose(1, 0).unsqueeze(0).expand(b, -1, -1, -1)
 
-        noninherent_word = self.beta_mlp(self.r_emb3).log_softmax(-1).transpose(1, 0).unsqueeze(0).expand(b, -1, -1)
-        noninherent_word = torch.gather(noninherent_word, 1, x.unsqueeze(-1).expand(-1, -1, self.r))
+        # noninherent_word = self.beta_mlp(self.r_emb3).log_softmax(-1).transpose(1, 0).unsqueeze(0).expand(b, -1, -1)
+        # noninherent_word = torch.gather(noninherent_word, 1, x.unsqueeze(-1).expand(-1, -1, self.r))
+        noninherent_word = self.beta_mlp(self.r_emb3).log_softmax(-1)
+        noninherent_word = noninherent_word[
+            torch.arange(self.r)[None, None], x[..., None]]
         noninherent = noninherent_word.unsqueeze(-2).unsqueeze(-1) + noninherent_symbol.unsqueeze(1)
 
         return {
@@ -114,8 +119,6 @@ class NeuralBLPCFG(nn.Module):
             'inherent': inherent,
             'root': roots(),
             'kl': 0}
-
-
 
     def forward4viterbi(self, input):
         x = input['word']
@@ -168,16 +171,15 @@ class NeuralBLPCFG(nn.Module):
             'kl': 0
             }
 
-
-
-
-
-    def loss(self, input):
+    def loss(self, input, partition=None):
         rules = self.forward(input)
         result =  self.pcfg.loss(rules, input['seq_len'])
         return -result['partition'].mean()
 
-    def evaluate(self, input, decode_type='mbr', eval_dep=False):
+    def evaluate(
+            self, input,
+            decode_type='mbr', eval_dep=False, depth=None, **kwargs
+        ):
         if decode_type == 'mbr':
             rules = self.forward(input)
             return self.pcfg.decode(rules, input['seq_len'], mbr=True, eval_dep=eval_dep)

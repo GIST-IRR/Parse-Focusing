@@ -81,7 +81,7 @@ class PCFG_base(nn.Module):
             return self._inside_topk(rules, terms, lens, topk=topk, **kwargs)
         elif 'tree' in kwargs.keys():
             # return self._inside_one(rules, terms, lens, **kwargs)
-            return self._inside_one_new(rules, terms, lens, **kwargs)
+            return self._inside_one(rules, terms, lens, **kwargs)
         else:
             if isinstance(kwargs.get("w2T", None), torch.Tensor):
                 return self._inside_weighted(rules, terms, lens, **kwargs)
@@ -98,6 +98,7 @@ class PCFG_base(nn.Module):
         tag_indicator=None,
         mbr=False,
         depth=False,
+        label=False
     ):
         batch, seq_len = span_indicator.shape[:2]
         prediction = [[] for _ in range(batch)]
@@ -111,7 +112,8 @@ class PCFG_base(nn.Module):
             logZ.sum().backward()
             marginals = span_indicator.grad
             tag_marginals = (
-                tag_indicator.grad if tag_indicator is not None else None
+                tag_indicator.grad.detach()
+                if tag_indicator is not None else None
             )
             if mbr:
                 if depth:
@@ -119,9 +121,20 @@ class PCFG_base(nn.Module):
                 else:
                     # MBR decoding show the difference of perfermance between with and without tagger
                     # Before find the ways to apply tagger without loss of performance, use without tagger
-                    return self._cky_zero_order(
-                        marginals.detach().sum(-1), lens
-                    )
+                    if marginals.dim() == 4:
+                        if label and tag_marginals is not None:
+                            return  self._cky_zero_order_label(
+                                marginals.detach(), lens,
+                                tag_marginals=tag_marginals
+                            )
+                        else:
+                            return self._cky_zero_order(
+                                marginals.detach().sum(-1), lens
+                            )
+                    elif marginals.dim() == 3:
+                        return self._cky_zero_order(
+                            marginals.detach(), lens
+                        )
                     # return self._cky_zero_order_tag(
                     #     marginals.detach(), tag_marginals.detach(), lens
                     # )
@@ -143,7 +156,9 @@ class PCFG_base(nn.Module):
     @torch.no_grad()
     def _cky_zero_order(self, marginals, lens):
         N = marginals.shape[-1]
+        # s tensor save diagonal elements in marginals tensor first.
         s = marginals.new_zeros(*marginals.shape).fill_(-1e9)
+        # p tensor save what?
         p = marginals.new_zeros(*marginals.shape).long()
         diagonal_copy_(s, diagonal(marginals, 1), 1)
         for w in range(2, N):
@@ -171,6 +186,57 @@ class PCFG_base(nn.Module):
         p = p.tolist()
         lens = lens.tolist()
         spans = [backtrack(p[i], 0, length) for i, length in enumerate(lens)]
+        return spans
+    
+    @torch.no_grad()
+    def _cky_zero_order_label(self, marginals, lens, tag_marginals=None):
+        assert marginals.dim() == 4
+        l, _, N, NT = marginals.shape
+        # s tensor save diagonal elements in marginals tensor first.
+        s = marginals.new_full(marginals.shape, -1e9)
+        # p tensor save splitting point
+        p = marginals.new_zeros(*marginals.shape[:-1]).long()
+        # t tensor save label
+        t = marginals.new_zeros(*marginals.shape[:-1]).long()
+        # Terminal tag marginals
+        tt = tag_marginals.argmax(2)
+
+        diagonal_copy_(s, diagonal(marginals, 1), 1)
+        for w in range(2, N):
+            n = N - w
+            starts = p.new_tensor(range(n))
+            if w != 2:
+                Y = stripe(s, n, w - 1, (0, 1))
+                Z = stripe(s, n, w - 1, (1, w), 0)
+            else:
+                Y = stripe(s, n, w - 1, (0, 1))
+                Z = stripe(s, n, w - 1, (1, w), 0)
+            # Choose maximum splitting point
+            split = (Y.sum(-1) + Z.sum(-1)).argmax(2)
+            label_idx = split[..., None, None].expand(l, n, 1, NT)
+            # Choose maximum marginals
+            X = (Y + Z).gather(2, label_idx).squeeze(2)
+            x = X + diagonal(marginals, w)
+            tag = x.max(-1)[1]
+            
+            diagonal_copy_(s, x, w)
+            diagonal_copy_(p, split + starts.unsqueeze(0) + 1, w)
+            diagonal_copy_(t, tag, w)
+
+        def backtrack_label(p, i, j, tag, ttag):
+            if j - i == 1:
+                return [(i, j, ttag[i])]
+            split = p[i][j]
+            label = tag[i][j]
+            ltree = backtrack_label(p, i, split, tag, ttag)
+            rtree = backtrack_label(p, split, j, tag, ttag)
+            return [(i, j, label)] + ltree + rtree
+
+        p = p.tolist()
+        lens = lens.tolist()
+        t = t.tolist()
+        tt = tt.tolist()
+        spans = [backtrack_label(p[i], 0, length, t[i], tt[i]) for i, length in enumerate(lens)]
         return spans
 
     @torch.no_grad()
