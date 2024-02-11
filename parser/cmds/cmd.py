@@ -352,6 +352,7 @@ class CMD(object):
         eval_depth=False,
         left_binarization=False,
         right_binarization=False,
+        rule_update=False,
     ):
         if model == None:
             model = self.model
@@ -393,6 +394,7 @@ class CMD(object):
                 eval_dep=eval_dep,
                 depth=depth,
                 label=label,
+                rule_update=rule_update,
             )
 
             # Save sequence lengths

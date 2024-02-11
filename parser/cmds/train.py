@@ -291,6 +291,7 @@ class Train(CMD):
                 eval_depth=eval_depth,
                 left_binarization=left_binarization,
                 right_binarization=right_binarization,
+                rule_update=True,
             )
             log.info(f"{'dev f1:':6}   {dev_f1_metric}")
             log.info(f"{'dev ll:':6}   {dev_ll}")

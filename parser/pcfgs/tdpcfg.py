@@ -511,6 +511,8 @@ class Fastest_TDPCFG(PCFG_base):
 
             x = (x * child_mask.exp().unsqueeze(-1)).clamp(-1e9)
             x_normalizer = (x_normalizer + child_mask).clamp(-1e9)
+            # x = (x * child_mask.unsqueeze(-1)).clamp(-1e9)
+            # x_normalizer = (x_normalizer + child_mask.log()).clamp(-1e9)
 
             if w + 1 < N:
                 left_x = transform(x, H_L)
