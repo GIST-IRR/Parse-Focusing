@@ -14,7 +14,7 @@ heatmap/
 weights/
 *.dataset
 *.pkl
-model/
+*.pt
 trees/
 EVALB/
 scheduler/
@@ -31,3 +31,4 @@ evalb_test.txt
 pred.txt
 *.gif
 *.prog
+prototype/
