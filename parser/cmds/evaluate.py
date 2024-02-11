@@ -186,6 +186,13 @@ class Evaluate(CMD):
                 f"\tratio of recursive rules: {pd_rec_ct.total() / pd_bi_ct.total()}"
             )
 
+            if decode_type == "viterbi":
+                rule_counter_path = (
+                    f"{self.args.load_from_dir}/{data_split}-rule_counter.pkl"
+                )
+                with Path(rule_counter_path).open("wb") as f:
+                    pickle.dump(pd_rule_ct, f)
+
         if hasattr(metric_f1, "correspondence"):
             save_correspondence(
                 metric_f1.correspondence, dirname=self.args.load_from_dir
