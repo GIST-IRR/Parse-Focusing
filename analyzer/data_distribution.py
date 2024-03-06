@@ -1,13 +1,9 @@
 #!/usr/bin/env python
 import pickle
 import argparse
-from collections import OrderedDict, Counter, defaultdict
-from numpy import vsplit
+from collections import OrderedDict, defaultdict
 from torch.utils.tensorboard import SummaryWriter
 
-from fastNLP.core.dataset import DataSet
-from fastNLP.core.vocabulary import Vocabulary
-import torch
 from utils import span_to_tree
 
 from parser.helper.metric import UF1

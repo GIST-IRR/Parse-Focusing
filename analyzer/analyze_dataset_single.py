@@ -7,16 +7,11 @@ In case that the ratio of NT_NT and T_T is higher than NT_T and T_NT,
 the tree is called balanced tree.
 On the other hands, the tree is called unbalanced tree.
 """
-import os
-import pickle
 from pathlib import Path
 from collections import defaultdict
 
 from nltk.tree import Tree
-from easydict import EasyDict as edict
 import numpy as np
-
-from utils import span_to_tree
 
 
 def count_rules(trees, root=False):
