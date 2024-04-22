@@ -1,19 +1,17 @@
 import torch
 import torch.nn as nn
-from .PCFG_module import (
-    PCFG_module,
-    Term_parameterizer,
-    Root_parameterizer
-)
+from .PCFG_module import PCFG_module, Term_parameterizer, Root_parameterizer
 from parser.modules.res import ResLayer
 
-from parser.pcfgs.td_partition_function import TDPartitionFunction
+from parser.pfs.td_partition_function import TDPartitionFunction
 from ..pcfgs.tdpcfg import Fastest_TDPCFG
+from ..pcfgs.pcfg import PCFG
 from torch.distributions.utils import logits_to_probs
 from torch.distributions import Bernoulli
 
 
 mask_bernoulli = Bernoulli(torch.tensor([0.3]))
+
 
 class Nonterm_parameterizer(nn.Module):
     def __init__(self, dim, NT, T, r, nonterm_emb=None, term_emb=None):
@@ -34,16 +32,11 @@ class Nonterm_parameterizer(nn.Module):
             self.term_emb = nn.Parameter(torch.randn(self.T, self.dim))
 
         self.parent_mlp = nn.Sequential(
-            nn.Linear(self.dim, self.dim),
-            nn.ReLU()
+            nn.Linear(self.dim, self.dim), nn.ReLU()
         )
-        self.left_mlp = nn.Sequential(
-            nn.Linear(self.dim, self.dim),
-            nn.ReLU()
-        )
+        self.left_mlp = nn.Sequential(nn.Linear(self.dim, self.dim), nn.ReLU())
         self.right_mlp = nn.Sequential(
-            nn.Linear(self.dim, self.dim),
-            nn.ReLU()
+            nn.Linear(self.dim, self.dim), nn.ReLU()
         )
 
         # self.rank_proj = nn.Linear(self.dim, self.r, bias=False)
@@ -61,6 +54,7 @@ class Nonterm_parameterizer(nn.Module):
         left = left.softmax(-2)
         right = right.softmax(-2)
         return head, left, right
+
 
 class FTNPCFG(PCFG_module):
     def __init__(self, args):
@@ -87,72 +81,138 @@ class FTNPCFG(PCFG_module):
 
         # terms
         self.terms = Term_parameterizer(
-            self.s_dim, self.T, self.V, term_emb=self.term_emb)
+            self.s_dim, self.T, self.V, term_emb=self.term_emb
+        )
 
         # Nonterms
         self.nonterms = Nonterm_parameterizer(
-            self.s_dim, self.NT, self.T, self.r,
-            nonterm_emb=self.nonterm_emb, term_emb=self.term_emb
+            self.s_dim,
+            self.NT,
+            self.T,
+            self.r,
+            nonterm_emb=self.nonterm_emb,
+            term_emb=self.term_emb,
         )
 
-        self._initialize()
+        self._initialize(mode="xavier_normal")
 
-    def _initialize(self):
-        for p in self.parameters():
-            if p.dim() > 1:
-                torch.nn.init.xavier_normal_(p)
+    def compose(self, rules):
+        head = rules["head"]
+        left = rules["left"]
+        right = rules["right"]
+        unary = rules["unary"]
+        root = rules["root"]
 
-    def forward(self, input, **kwargs):
-        x = input['word']
-        b, n = x.shape[:2]
+        h = head.shape[0]
+        l = left.shape[0]
+        r = right.shape[0]
 
-        def roots():
-            roots = self.root()
-            roots = roots.expand(b, roots.shape[-1])
-            return roots
+        rule = torch.einsum("ir, jr, kr -> ijk", head, left, right)
+        rule = rule.log().reshape(h, l, r)
 
-        def terms():
-            term_prob = self.terms()
-            term_prob = term_prob[torch.arange(self.T)[None,None], x[:,:,None]]
-            return term_prob
+        return {"unary": unary, "root": root, "rule": rule}
 
-        def rules():
-            head, left, right = self.nonterms()
-            head = head.unsqueeze(0).expand(b,*head.shape)
-            left = left.unsqueeze(0).expand(b,*left.shape)
-            right = right.unsqueeze(0).expand(b,*right.shape)
-            return (head, left, right)
-
-        root = roots()
-        unary = terms()
-        head, left, right = rules()
+    def forward(self, **kwargs):
+        root = self.root()
+        unary = self.terms()
+        head, left, right = self.nonterms()
 
         return {
-            'unary': unary,
-            'root': root,
-            'head': head,
-            'left': left,
-            'right': right,
+            "unary": unary,
+            "root": root,
+            "head": head,
+            "left": left,
+            "right": right,
         }
-    
+
+    def batchify(self, rules, words):
+        b = words.shape[0]
+
+        root = rules["root"]
+        unary = rules["unary"]
+
+        root = root.expand(b, root.shape[-1])
+        unary = unary[torch.arange(self.T)[None, None], words[:, :, None]]
+
+        if len(rules.keys()) == 5:
+            head = rules["head"]
+            left = rules["left"]
+            right = rules["right"]
+            head = head.unsqueeze(0).expand(b, *head.shape)
+            left = left.unsqueeze(0).expand(b, *left.shape)
+            right = right.unsqueeze(0).expand(b, *right.shape)
+            return {
+                "unary": unary,
+                "root": root,
+                "head": head,
+                "left": left,
+                "right": right,
+            }
+
+        elif len(rules.keys()) == 3:
+            rule = rules["rule"]
+            rule = rule.unsqueeze(0).expand(b, *rule.shape)
+            return {
+                "unary": unary,
+                "root": root,
+                "rule": rule,
+            }
+
     def loss(self, input, partition=False, soft=False, label=False, **kwargs):
 
-        self.rules = self.forward(input)
+        self.rules = self.forward()
+        self.rules = self.batchify(self.rules, input["word"])
 
         result = self.pcfg(
-            self.rules, self.rules['unary'],
-            lens=input['seq_len'],
-            label=label
+            self.rules, self.rules["unary"], lens=input["seq_len"], label=label
         )
-        return -result['partition'].mean()
+        return -result["partition"].mean()
 
-    def evaluate(self, input, decode_type, depth=0, label=False, **kwargs):
-        rules = self.forward(input)
+    def evaluate(
+        self,
+        input,
+        decode_type,
+        depth=0,
+        label=False,
+        rule_update=False,
+        **kwargs
+    ):
+        if rule_update:
+            need_update = True
+        else:
+            if hasattr(self, "rules"):
+                need_update = False
+            else:
+                need_update = True
 
-        if decode_type == 'viterbi':
-            assert NotImplementedError
-        elif decode_type == 'mbr':
-            result = self.pcfg(rules, rules['unary'], lens=input['seq_len'], viterbi=False, mbr=True, label=label)
+        if need_update:
+            self.rules = self.forward()
+
+        if decode_type == "viterbi":
+            if not hasattr(self, "viterbi_pcfg"):
+                self.viterbi_pcfg = PCFG()
+                self.rules = self.compose(self.rules)
+
+        rules = self.batchify(self.rules, input["word"])
+
+        if decode_type == "viterbi":
+            result = self.viterbi_pcfg(
+                rules,
+                rules["unary"],
+                lens=input["seq_len"],
+                viterbi=True,
+                mbr=False,
+                label=label,
+            )
+        elif decode_type == "mbr":
+            result = self.pcfg(
+                rules,
+                rules["unary"],
+                lens=input["seq_len"],
+                viterbi=False,
+                mbr=True,
+                label=label,
+            )
         else:
             raise NotImplementedError
 

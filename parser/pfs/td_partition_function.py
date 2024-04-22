@@ -1,14 +1,15 @@
 import torch
-from parser.pcfgs.partition_function import PartitionFunction
+from parser.pfs.partition_function import PartitionFunction
+
 
 class TDPartitionFunction(PartitionFunction):
     def depth_partition_function(self, rules, depth, output=None, span=0):
         eps = 1e-8
-        terms = rules['unary']
-        root = rules['root']
-        H = rules['head']
-        L = rules['left']
-        R = rules['right']
+        terms = rules["unary"]
+        root = rules["root"]
+        H = rules["head"]
+        L = rules["left"]
+        R = rules["right"]
         batch_size, NT, r = H.shape
         N = L.shape[1]
         T = N - NT
@@ -26,7 +27,9 @@ class TDPartitionFunction(PartitionFunction):
         if depth > 2:
             for _ in range(depth - 2):
                 t = torch.cat((t, bias), 1)
-                t = logmatmul(L, t.unsqueeze(-1), dim=1) + logmatmul(R, t.unsqueeze(-1), dim=1)
+                t = logmatmul(L, t.unsqueeze(-1), dim=1) + logmatmul(
+                    R, t.unsqueeze(-1), dim=1
+                )
                 t = logmatmul(H, t.unsqueeze(1))
                 t = torch.clamp(t, max=0)
 
@@ -34,13 +37,13 @@ class TDPartitionFunction(PartitionFunction):
         return r.squeeze(1)
 
     def length_partition_function(self, rules, lens, output=None):
-        unary = rules['unary']
-        root = rules['root']
+        unary = rules["unary"]
+        root = rules["root"]
 
         # 3d binary rule probabilities tensor decomposes to three 2d matrices after CP decomposition.
-        H = rules['head']  # (batch, NT, r) r:=rank
-        L = rules['left']  # (batch, NT+T, r)
-        R = rules['right'] # (batch, NT+T, r)
+        H = rules["head"]  # (batch, NT, r) r:=rank
+        L = rules["left"]  # (batch, NT+T, r)
+        R = rules["right"]  # (batch, NT+T, r)
 
         T = unary.shape[1]
         S = L.shape[-2]
@@ -53,19 +56,19 @@ class TDPartitionFunction(PartitionFunction):
 
         # @checkpoint
         def transform_left_t(left):
-            '''
+            """
             :param left: shape (batch, T, r)
             :return: shape (batch, r)
-            '''
+            """
             return left.logsumexp(1)
 
         # @checkpoint
         def transform_left_nt(x, left):
-            '''
+            """
             :param x: shape (batch, NT)
             :param left: shape (batch, NT, r)
             :return: shape (batch, r)
-            '''
+            """
             return (x.unsqueeze(-1) + left).logsumexp(-2)
 
         # @checkpoint
@@ -78,17 +81,16 @@ class TDPartitionFunction(PartitionFunction):
 
         # @checkpoint
         def merge(Y, Z):
-            '''
+            """
             :param Y: shape (batch, w, r)
             :param Z: shape (batch, w, r)
             :return: shape (batch, NT)
-            '''
+            """
             # contract dimension w.
             b_r = (Y + Z).logsumexp(-2)
             # contract dimension r.
             b_x = (b_r.unsqueeze(1) + H).logsumexp(-1)
             return b_x
-
 
         batch, *_ = unary.shape
         N = lens.max()
@@ -119,20 +121,20 @@ class TDPartitionFunction(PartitionFunction):
                 right_s[:, w].copy_(right_x)
             s[:, w].copy_(x)
 
-        if output == 'full':
+        if output == "full":
             logZ = (s + root.unsqueeze(1)).logsumexp(-1)
         else:
             logZ = (s[torch.arange(batch), lens] + root).logsumexp(-1)
         return logZ
 
     def length_partition_function_full(self, rules, lens, output=None):
-        unary = rules['unary']
-        root = rules['root']
+        unary = rules["unary"]
+        root = rules["root"]
 
         # 3d binary rule probabilities tensor decomposes to three 2d matrices after CP decomposition.
-        H = rules['head']  # (batch, NT, r) r:=rank
-        L = rules['left']  # (batch, NT+T, r)
-        R = rules['right'] # (batch, NT+T, r)
+        H = rules["head"]  # (batch, NT, r) r:=rank
+        L = rules["left"]  # (batch, NT+T, r)
+        R = rules["right"]  # (batch, NT+T, r)
 
         T = unary.shape[1]
         S = L.shape[-2]
@@ -145,20 +147,20 @@ class TDPartitionFunction(PartitionFunction):
 
         # @checkpoint
         def transform_left_t(terms, left):
-            '''
+            """
             :param terms: shape (batch, T)
             :param left: shape (batch, T, r)
             :return: shape (batch, r)
-            '''
+            """
             return (terms.unsqueeze(-1) + left).logsumexp(1)
 
         # @checkpoint
         def transform_left_nt(x, left):
-            '''
+            """
             :param x: shape (batch, NT)
             :param left: shape (batch, NT, r)
             :return: shape (batch, r)
-            '''
+            """
             return (x.unsqueeze(-1) + left).logsumexp(-2)
 
         # @checkpoint
@@ -171,17 +173,16 @@ class TDPartitionFunction(PartitionFunction):
 
         # @checkpoint
         def merge(Y, Z):
-            '''
+            """
             :param Y: shape (batch, w, r)
             :param Z: shape (batch, w, r)
             :return: shape (batch, NT)
-            '''
+            """
             # contract dimension w.
             b_r = (Y + Z).logsumexp(-2)
             # contract dimension r.
             b_x = (b_r.unsqueeze(1) + H).logsumexp(-1)
             return b_x
-
 
         batch, *_ = unary.shape
         N = lens.max()
@@ -213,7 +214,7 @@ class TDPartitionFunction(PartitionFunction):
                 right_s[:, w].copy_(right_x)
             s[:, w].copy_(x)
 
-        if output == 'full':
+        if output == "full":
             logZ = (s + root.unsqueeze(1)).logsumexp(-1)
         else:
             logZ = (s[torch.arange(batch), lens] + root).logsumexp(-1)

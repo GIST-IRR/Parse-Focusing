@@ -5,7 +5,7 @@ from parser.model.PCFG_module import PCFG_module
 from parser.modules.res import ResLayer
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 
-from parser.pcfgs.partition_function import PartitionFunction
+from parser.pfs.partition_function import PartitionFunction
 from ..pcfgs.pcfg import PCFG
 
 
@@ -15,7 +15,7 @@ class Root_parameterizer(nn.Module):
         self.s_dim = s_dim
         self.z_dim = z_dim
         self.NT = NT
-        
+
         self.root_emb = nn.Parameter(torch.randn(1, self.s_dim))
 
         self.root_mlp = nn.Sequential(
@@ -32,6 +32,7 @@ class Root_parameterizer(nn.Module):
 
         root_prob = self.root_mlp(root_emb).log_softmax(-1)
         return root_prob
+
 
 class Term_parameterizer(nn.Module):
     def __init__(self, s_dim, z_dim, T, V) -> None:
@@ -56,6 +57,7 @@ class Term_parameterizer(nn.Module):
         term_prob = self.term_mlp(term_emb)
         return term_prob
 
+
 class Nonterm_parameterizer(nn.Module):
     def __init__(self, s_dim, z_dim, NT, T) -> None:
         super().__init__()
@@ -73,14 +75,9 @@ class Nonterm_parameterizer(nn.Module):
         nonterm_emb = self.nonterm_emb.unsqueeze(0).expand(
             b, self.NT, self.s_dim
         )
-        # z_expand = z.unsqueeze(1).expand(b, self.NT, self.z_dim)
-        # nonterm_emb = torch.cat([nonterm_emb, z_expand], -1)
-        # nonterm_emb = nonterm_emb * z.unsqueeze(1)
-
-        # rule_prob = self.nonterm_mlp(nonterm_emb).log_softmax(-1)
         rule_prob = self.nonterm_mlp(nonterm_emb)
-        # rule_prob = rule_prob.reshape(b, self.NT, self.NT_T, self.NT_T)
         return rule_prob
+
 
 class Encoder(nn.Module):
     def __init__(self, V, w_dim, h_dim, z_dim) -> None:
@@ -118,6 +115,7 @@ class Encoder(nn.Module):
         lvar = out[:, self.z_dim :]
         return mean, lvar
 
+
 class CompoundPCFG(PCFG_module):
     def __init__(self, args):
         super(CompoundPCFG, self).__init__()
@@ -137,29 +135,14 @@ class CompoundPCFG(PCFG_module):
         self.nonterms = Nonterm_parameterizer(
             self.s_dim, self.z_dim, self.NT, self.T
         )
-        self.terms = Term_parameterizer(
-            self.s_dim, self.z_dim, self.T, self.V
-        )
-        self.root = Root_parameterizer(
-            self.s_dim, self.z_dim, self.NT
-        )
+        self.terms = Term_parameterizer(self.s_dim, self.z_dim, self.T, self.V)
+        self.root = Root_parameterizer(self.s_dim, self.z_dim, self.NT)
 
         self.enc = Encoder(self.V, self.w_dim, self.h_dim, self.z_dim)
 
         # Partition function
         self.mode = getattr(args, "mode", None)
-        self._initialize()
-
-    def _initialize(self):
-        for p in self.parameters():
-            if p.dim() > 1:
-                torch.nn.init.xavier_uniform_(p)
-
-    def withoutTerm_parameters(self):
-        for name, param in self.named_parameters():
-            module_name = name.split(".")[0]
-            if module_name != "terms":
-                yield param
+        self._initialize(mode="xavier_uniform")
 
     def rules_similarity(self, rule=None, unary=None):
         if rule is None:
@@ -168,25 +151,25 @@ class CompoundPCFG(PCFG_module):
             unary = self.rules["unary"]
 
         b = rule.shape[0]
-        
-        tkl = self.kl_div(unary) # KLD for terminal
-        nkl = self.kl_div(rule) # KLD for nonterminal
-        tcs = self.cos_sim(unary) # cos sim for terminal
+
+        tkl = self.kl_div(unary)  # KLD for terminal
+        nkl = self.kl_div(rule)  # KLD for nonterminal
+        tcs = self.cos_sim(unary)  # cos sim for terminal
         ncs = self.cos_sim(
             rule.reshape(b, self.NT, -1)
-        ) # cos sim for nonterminal
-        log_tcs = self.cos_sim(unary, log=True) # log cos sim for terminal
+        )  # cos sim for nonterminal
+        log_tcs = self.cos_sim(unary, log=True)  # log cos sim for terminal
         log_ncs = self.cos_sim(
             rule.reshape(b, self.NT, -1), log=True
-        ) # log cos sim for nonterminal
-        
+        )  # log cos sim for nonterminal
+
         return {
             "kl_term": tkl,
             "kl_nonterm": nkl,
             "cos_term": tcs,
             "cos_nonterm": ncs,
             "log_cos_term": log_tcs,
-            "log_cos_nonterm": log_ncs
+            "log_cos_nonterm": log_ncs,
         }
 
     @property
@@ -198,24 +181,15 @@ class CompoundPCFG(PCFG_module):
     def clear_metrics(self):
         self._metrics = None
 
-    # @property
-    # def rules(self):
-    #     if getattr(self, "_rules", None) is None:
-    #         self._rules = self.forward({"word": torch.zeros([1, 1])})
-    #     return self._rules
-
-    # @rules.setter
-    # def rules(self, rule):
-    #     self._rules = rule
-
     def forward(self, input, evaluating=False):
         x = input["word"]
         b, n = x.shape[:2]
         seq_len = input["seq_len"]
 
         def kl(mean, logvar):
-            result = -0.5 * (logvar - torch.pow(mean, 2) \
-                - torch.exp(logvar) + 1)
+            result = -0.5 * (
+                logvar - torch.pow(mean, 2) - torch.exp(logvar) + 1
+            )
             return result
 
         # mean, lvar = enc(x)
@@ -240,7 +214,7 @@ class CompoundPCFG(PCFG_module):
             "unary": unary,
             "root": root,
             "rule": rule,
-            # "kl": kl(mean, lvar).sum(1)
+            "kl": kl(mean, lvar).sum(1),
         }
 
     def loss(self, input, partition=False, max_depth=0, soft=False):
@@ -248,42 +222,21 @@ class CompoundPCFG(PCFG_module):
         terms = self.term_from_unary(input["word"], self.rules["unary"])
 
         result = self.pcfg(self.rules, terms, lens=input["seq_len"])
-        # Partition function
-        if partition:
-            # depth-conditioned inside algorithm
-            # partition function approximation
-            # if max_depth == 0:
-            #     lens = input['seq_len']
-            # else:
-            #     lens = max_depth
-            self.pf = self.part(self.rules, lens=input["seq_len"], mode=self.mode)
-            # Renormalization
-            if soft:
-                return (-result["partition"] + self.rules["kl"]).mean(), self.pf.mean()
-            result["partition"] = result["partition"] - self.pf
-        # depth-conditioned inside algorithm
-        # return (-result["partition"] + self.rules["kl"]).mean()
-        return (-result["partition"]).mean()
+        return (-result["partition"] + self.rules["kl"]).mean()
 
-    def evaluate(self, input, decode_type, depth=0, depth_mode=False, **kwargs):
+    def evaluate(
+        self, input, decode_type, depth=0, depth_mode=False, **kwargs
+    ):
         rules = self.forward(input, evaluating=True)
         terms = self.term_from_unary(input["word"], rules["unary"])
 
         if decode_type == "viterbi":
             result = self.pcfg(
-                rules,
-                terms,
-                lens=input["seq_len"],
-                viterbi=True,
-                mbr=False
+                rules, terms, lens=input["seq_len"], viterbi=True, mbr=False
             )
         elif decode_type == "mbr":
             result = self.pcfg(
-                rules,
-                terms,
-                lens=input["seq_len"],
-                viterbi=False,
-                mbr=True
+                rules, terms, lens=input["seq_len"], viterbi=False, mbr=True
             )
         else:
             raise NotImplementedError

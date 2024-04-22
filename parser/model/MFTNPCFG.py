@@ -1,18 +1,16 @@
 import torch
 import torch.nn as nn
-from .PCFG_module import PCFG_module, Term_parameterizer, Root_parameterizer
-from parser.modules.res import ResLayer
+from parser.model.PCFG_module import (
+    PCFG_module,
+    Term_parameterizer,
+    Root_parameterizer,
+)
 
-from parser.pcfgs.td_partition_function import TDPartitionFunction
+from parser.pfs.td_partition_function import TDPartitionFunction
 from ..pcfgs.tdpcfg import Fastest_TDPCFG
 from ..pcfgs.pcfg import PCFG
-from torch.distributions.utils import logits_to_probs
-from torch.distributions import Bernoulli
 
 from collections import defaultdict
-
-
-mask_bernoulli = Bernoulli(torch.tensor([0.3]))
 
 
 class Nonterm_parameterizer(nn.Module):
@@ -71,6 +69,7 @@ class MFTNPCFG(PCFG_module):
         self.word_emb_size = getattr(args, "word_emb_size", 200)
 
         self.embedding_sharing = getattr(args, "embedding_sharing", False)
+        self.mask_mode = getattr(args, "mask_mode", "soft")
 
         if self.embedding_sharing:
             print("embedding sharing")
@@ -106,7 +105,7 @@ class MFTNPCFG(PCFG_module):
             )
             self.terms = Term_parameterizer(self.s_dim, self.T, self.V)
 
-        self._initialize()
+        self._initialize(mode="xavier_normal")
 
         self.pretrained_models = getattr(args, "pretrained_models", None)
         self.parse_trees = []
@@ -120,14 +119,9 @@ class MFTNPCFG(PCFG_module):
                     if "pred_tree" in t.keys():
                         n_tree = [s for s in t["pred_tree"] if s[1] - s[0] > 1]
                     elif "tree" in t.keys():
-                        n_tree = [s for s in t["tree"] if s[1] - s[0] > 1]
+                        n_tree = [s[:2] for s in t["tree"] if s[1] - s[0] > 1]
                     parses[str(n_word)] = n_tree
                 self.parse_trees.append(parses)
-
-    def _initialize(self):
-        for p in self.parameters():
-            if p.dim() > 1:
-                torch.nn.init.xavier_normal_(p)
 
     def forward(self, **kwargs):
         root = self.root()
@@ -220,32 +214,16 @@ class MFTNPCFG(PCFG_module):
                 for s in t:
                     tree_mask[i, s[0], s[1]] += 1
 
-            # # mean by the number of trees
-            # tree_mask = tree_mask / len(self.pretrained_models)
-
-            # # softmax by the number of trees
-            # tree_mask = tree_mask.softmax(-1)
-
             # Softmax mask
-            idx0, idx1 = torch.triu_indices(
-                seq_len + 1, seq_len + 1, offset=2
-            ).unbind()
-            masked_data = tree_mask[:, idx0, idx1]
-            masked_data = masked_data.softmax(-1)
-            tree_mask[:, idx0, idx1] = masked_data
-
-            # # Softmax for each span width
-            # for w in range(2, seq_len + 1):
-            #     n = seq_len + 1 - w
-            #     idx = (Ellipsis, torch.arange(n), torch.arange(n) + w)
-            #     tree_mask[idx] = tree_mask[idx].softmax(-1)
-
-            # # Softmax for existing spans
-            # idx = torch.nonzero(tree_mask)
-            # for i in range(b):
-            #     b_i = idx[idx[:, 0] == i]
-            #     b_i = (b_i[:, 0], b_i[:, 1], b_i[:, 2])
-            #     tree_mask[b_i] = tree_mask[b_i].softmax(-1)
+            if self.mask_mode == "soft":
+                idx0, idx1 = torch.triu_indices(
+                    seq_len + 1, seq_len + 1, offset=2
+                ).unbind()
+                masked_data = tree_mask[:, idx0, idx1]
+                masked_data = masked_data.softmax(-1)
+                tree_mask[:, idx0, idx1] = masked_data
+            elif self.mask_mode == "hard":
+                tree_mask = tree_mask > 0
 
         result = self.pcfg(
             self.rules,
@@ -260,7 +238,7 @@ class MFTNPCFG(PCFG_module):
         input,
         decode_type,
         depth=0,
-        label=False,
+        label=True,
         rule_update=False,
         **kwargs
     ):

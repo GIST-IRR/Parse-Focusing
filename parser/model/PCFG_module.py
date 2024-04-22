@@ -177,10 +177,88 @@ class PCFG_module(nn.Module):
     def __init__(self) -> None:
         super().__init__()
 
+    def _initialize(self, mode="xavier_uniform", value=0.0):
+        # Original Method
+        if mode == "xavier_uniform":
+            for p in self.parameters():
+                if p.dim() > 1:
+                    torch.nn.init.xavier_uniform_(p)
+        elif mode == "xavier_normal":
+            for p in self.parameters():
+                if p.dim() > 1:
+                    torch.nn.init.xavier_normal_(p)
+        elif mode == "constant":
+            # # Init with constant 0.0009
+            for n, p in self.named_parameters():
+                n = n.split(".")[0]
+                if n == "terms":
+                    torch.nn.init.constant_(p, 0.001)
+                else:
+                    if p.dim() > 1:
+                        torch.nn.init.xavier_uniform_(p)
+        elif mode == "mean":
+            for n, p in self.named_parameters():
+                if p.dim() > 1:
+                    torch.nn.init.xavier_uniform_(p)
+                val = p.mean()
+                torch.nn.init.constant_(p, val)
+        # # Init with mean of each layer
+        # for n, p in self.named_parameters():
+        #     if p.dim() > 1:
+        #         torch.nn.init.xavier_uniform_(p)
+        #     if n.split(".")[0] == "terms":
+        #         val = p.mean()
+        #         torch.nn.init.constant_(p, val)
+        # # Init with mean of each layer for all
+        # for p in self.parameters():
+        #     if p.dim() > 1:
+        #         torch.nn.init.xavier_uniform_(p)
+        #     val = p.mean()
+        #     torch.nn.init.constant_(p, val)
+        # # Init with mean of each layer for all & Fix terms
+        # for n, p in self.named_parameters():
+        #     if p.dim() > 1:
+        #         torch.nn.init.xavier_uniform_(p)
+        #     if n.split(".")[0] == "terms":
+        #         val = p.mean()
+        #         torch.nn.init.constant_(p, val)
+        #         p.requires_grad = False
+        # # Init with mean of each layer for nonterminal
+        # for n, p in self.named_parameters():
+        #     if p.dim() > 1:
+        #         torch.nn.init.xavier_uniform_(p)
+        #     if n.split(".")[0] != "terms":
+        #         val = p.mean()
+        #         torch.nn.init.constant_(p, val)
+        #     else:
+        #         p.requires_grad = False
+        # # Init with mean of each layer for nonterminal & Fix terms
+        # for n, p in self.named_parameters():
+        #     if p.dim() > 1:
+        #         torch.nn.init.xavier_uniform_(p)
+        #     val = p.mean()
+        #     torch.nn.init.constant_(p, val)
+        #     if n.split(".")[0] != "terms":
+        #         p.requires_grad = False
+        #
+        # for n, p in self.named_parameters():
+        #     if p.dim() > 1:
+        #         torch.nn.init.xavier_uniform_(p)
+        #     if n.split(".")[0] == "terms":
+        #         val = p.mean()
+        #         torch.nn.init.constant_(p, val)
+        #         p.requires_grad = False
+
     def clear_grammar(self):
         # This function is used when the network is updated
         # Updated network will have different rules
         self.rules = None
+
+    def withoutTerm_parameters(self):
+        for name, param in self.named_parameters():
+            module_name = name.split(".")[0]
+            if module_name != "terms":
+                yield param
 
     def batch_dot(self, x, y):
         return (x * y).sum(-1, keepdims=True)
@@ -492,7 +570,7 @@ class PCFG_module(nn.Module):
             "g_r": g_r,
             # 'proj_scale': proj_scale,
             "g_loss_norm": g_loss_norm,
-            "g_z_l_norm": g_z_l_norm
+            "g_z_l_norm": g_z_l_norm,
             # 'g_proj_norm': g_proj_norm,
             # 'g_orth_norm': g_orth_norm
         }

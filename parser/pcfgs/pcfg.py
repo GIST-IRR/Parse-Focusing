@@ -5,7 +5,6 @@ from parser.pcfgs.fn import (
     checkpoint,
 )
 import torch
-import torch.nn.functional as F
 
 
 class PCFG(PCFG_base):
@@ -22,11 +21,6 @@ class PCFG(PCFG_base):
     ):
         # terms = rules['unary']
         rule = rules["rule"]
-        # filter_mask = torch.where(
-        #     rule[0].exp() < rule[0].exp().mean(), 1, 0).all(0)
-        # filter_mask = torch.where(
-        #     rule[0].exp() < 1e-1, 1, 0).all(0)
-        # rule.masked_fill_(filter_mask[None, None, :], -1e9)
         root = rules["root"]
 
         batch, N, T = terms.shape
@@ -1218,7 +1212,8 @@ class Faster_PCFG(PCFG_base):
                 child_mask = tree[
                     :, torch.arange(n), torch.arange(n) + w
                 ].log()
-                child_mask = child_mask[..., None]
+                if child_mask.dim() == 2:
+                    child_mask = child_mask[..., None]
 
             Y_term = terms[:, :n, :]
             Z_term = terms[:, w - 1 :, :]
