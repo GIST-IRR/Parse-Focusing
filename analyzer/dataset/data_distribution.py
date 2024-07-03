@@ -4,40 +4,10 @@ import argparse
 from collections import OrderedDict, defaultdict
 from torch.utils.tensorboard import SummaryWriter
 
-from utils import span_to_tree
+from utils import span_to_tree, clean_word
+from torch_support.metric import sentence_level_f1
 
 from parser.helper.metric import UF1
-
-
-def f1(pred, gold):
-    eps = 1e-8
-    # in the case of sentence length=1
-    if len(pred) == 0 or len(gold) == 0:
-        return None
-    length = max(gold, key=lambda x: x[1])[1]
-    # removing the trival span
-    gold = list(filter(lambda x: x[0] + 1 != x[1], gold))
-    pred = list(filter(lambda x: x[0] + 1 != x[1], pred))
-    # remove the entire sentence span.
-    gold = list(filter(lambda x: not (x[0] == 0 and x[1] == length), gold))
-    pred = list(filter(lambda x: not (x[0] == 0 and x[1] == length), pred))
-    # remove label.
-    gold = [g[:2] for g in gold]
-    pred = [p[:2] for p in pred]
-    gold = list(map(tuple, gold))
-    pred = list(map(tuple, pred))
-
-    gold = set(gold)
-    pred = set(pred)
-    overlap = pred.intersection(gold)
-    prec = float(len(overlap)) / (len(pred) + eps)
-    reca = float(len(overlap)) / (len(gold) + eps)
-    if len(gold) == 0:
-        reca = 1.0
-        if len(pred) == 0:
-            prec = 1.0
-    f1 = 2 * prec * reca / (prec + reca + 1e-8)
-    return f1
 
 
 def split_by_key(data, key):
@@ -70,16 +40,6 @@ def get_word_freq(
     mask_token="<mask>",
     threshold=10000,
 ):
-    # Word embedding from vocab frequency
-    def clean_word(words):
-        import re
-
-        def clean_number(w):
-            new_w = re.sub("[0-9]{1,}([,.]?[0-9]*)*", "N", w)
-            return new_w
-
-        return [clean_number(word.lower()) for word in words]
-
     new_words = []
     for w in dataset["word"]:
         w = clean_word(w)

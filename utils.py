@@ -4,6 +4,8 @@ import numpy as np
 import torch
 import os
 from pathlib import Path
+from copy import deepcopy
+from itertools import repeat
 
 from collections import Counter, defaultdict
 import matplotlib as mpl
@@ -40,6 +42,47 @@ def outlier(data, method="quantile", threshold=3.0):
         raise ValueError("method must be z_score or quantile")
 
 
+def load_trees(
+    filename, min_len=2, max_len=40, use_span=False, vocab=None, sort=True
+):
+    path = Path(filename)
+    with path.open("r") as f:
+        trees = []
+        for line in f:
+            tree = Tree.fromstring(line)
+            sentence = tree.leaves()
+            if len(sentence) < min_len or len(sentence) > max_len:
+                continue
+
+            if use_span:
+                span = tree_to_span(tree, type="tuple")
+            else:
+                span = None
+
+            if vocab:
+                token = list(map(vocab.to_index, clean_word(sentence)))
+            else:
+                token = None
+
+            trees.append(
+                {
+                    "sentence": sentence,
+                    "word": token,
+                    "tree": tree,
+                    "span": span,
+                }
+            )
+        if sort:
+            trees = sorted(
+                trees,
+                key=lambda x: (
+                    len(x["sentence"]),
+                    x["sentence"],
+                ),
+            )
+    return trees
+
+
 def clean_word(words):
     import re
 
@@ -48,6 +91,45 @@ def clean_word(words):
         return new_w
 
     return [clean_number(word.lower()) for word in words]
+
+
+def clean_symbol(
+    s, collapseFirst=False, xbar=False, cleanSubtag=False, joinChar="+"
+):
+    # Remove collapsed symbol
+    if collapseFirst:
+        s = s.split(joinChar)[0]
+    else:
+        s = s.split(joinChar)[-1]
+    # Check xbar symbol
+    xbar_flag = s.endswith("<>")
+    if xbar_flag:
+        s = s.replace("<>", "")
+    # Remove sub symbol
+    if cleanSubtag:
+        s = s.split("-")[0]
+        s = s.split("=")[0]
+    # Add xbar symbol
+    if xbar_flag:
+        if xbar:
+            s = "@" + s
+    return s
+
+
+def clean_rule(rule, xbar=False, clean_subtag=False):
+    n_rule = deepcopy(rule)
+    lhs = clean_symbol(
+        rule.lhs().symbol(), xbar=xbar, cleanSubtag=clean_subtag
+    )
+    rhs = [
+        clean_symbol(r.symbol(), xbar=xbar, cleanSubtag=clean_subtag)
+        for r in rule.rhs()
+    ]
+
+    n_rule.lhs()._symbol = lhs
+    for i, r in enumerate(n_rule.rhs()):
+        r._symbol = rhs[i]
+    return n_rule
 
 
 def min_depth_for_len(length):
@@ -194,7 +276,7 @@ def span_to_list(span):
     return [label] + children
 
 
-def tree_to_span(tree):
+def tree_to_span(tree, type="list"):
     def track(tree, i):
         label = tree.label()
         if len(tree) == 1 and not isinstance(tree[0], Tree):
@@ -204,9 +286,15 @@ def tree_to_span(tree):
             j, s = track(child, j)
             spans += s
         if label is not None and j > i:
-            spans = [[i, j, label]] + spans
+            if type == "tuple":
+                spans = [(i, j, label)] + spans
+            elif type == "list":
+                spans = [[i, j, label]] + spans
         elif j > i:
-            spans = [[i, j, "NULL"]] + spans
+            if type == "tuple":
+                spans = [(i, j, "NULL")] + spans
+            elif type == "list":
+                spans = [[i, j, "NULL"]] + spans
         return j, spans
 
     return track(tree, 0)[1]

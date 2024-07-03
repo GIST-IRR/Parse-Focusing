@@ -32,3 +32,10 @@ pred.txt
 *.gif
 *.prog
 prototype/
+model/
+results/
+raw_trees/
+stash/
+collect.sh
+drawing/
+achieving/

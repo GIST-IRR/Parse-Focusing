@@ -41,8 +41,8 @@ def norm(x, dim=None, eps=-15, log=False):
     return x
 
 
-def main(args):
-    root, rule, unary = load_grammar(args.dir, args.tag)
+def main(dir, tag, output):
+    root, rule, unary = load_grammar(dir, tag)
     rule_shape = rule.shape
 
     rule = rule.reshape(rule_shape[0], -1)
@@ -67,9 +67,9 @@ def main(args):
         "unary": norm(unary, dim=0, log=log).unsqueeze(0),
     }
 
-    save_rule_heatmap(joint_rules, filename=f"{args.tag}_joint.png")
-    save_rule_heatmap(lhs2rhs, filename=f"{args.tag}_lhs2rhs.png")
-    save_rule_heatmap(rhs2lhs, filename=f"{args.tag}_rhs2lhs.png")
+    save_rule_heatmap(joint_rules, filename=f"{output}_{tag}_joint.png")
+    save_rule_heatmap(lhs2rhs, filename=f"{output}_{tag}_lhs2rhs.png")
+    save_rule_heatmap(rhs2lhs, filename=f"{output}_{tag}_rhs2lhs.png")
 
     print("done")
 
@@ -78,6 +78,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dir", default="weights")
     parser.add_argument("--tag", default="basque_xbar_left")
+    parser.add_argument("--output", default="output")
     args = parser.parse_args()
 
-    main(args)
+    main(args.dir, args.tag, args.output)
