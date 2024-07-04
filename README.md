@@ -1,11 +1,11 @@
 # Parse-focused Neural PCFG
 
-Source code of ACL2024 Findings [Structural Optimization Ambiguity and Simplicity Bias in Unsupervised Neural Grammar Induction](TBA).
+Source code of ACL2024 Findings [Structural Optimization Ambiguity and Simplicity Bias in Unsupervised Neural Grammar Induction] (TBA)(TBA).
 Our code edited based on [TN-PCFG](https://github.com/sustcsonglin/TN-PCFG).
 
 ## Setup
 
-### prepare environment 
+### Prepare environment 
 
 ```
 conda create -n ungi python=3.11
@@ -13,11 +13,9 @@ conda activate ungi
 pip install -r requirements.txt
 ```
 
-### prepare dataset
+### Prepare dataset
 
-You can download the dataset and pretrained model (TN-PCFG and NBL-PCFG) from:  https://mega.nz/folder/OU5yiTjC#oeMYj1gBhqm2lRAdAvbOvw
-
-PTB:  ptb_cleaned.zip / CTB and SPRML: ctb_sprml_clean.zip
+If you need to download the datasets, please refer to [TN-PCFG](https://github.com/sustcsonglin/TN-PCFG).
 
 You can directly use the propocessed pickle file or create pickle file by your own
 
@@ -25,94 +23,63 @@ You can directly use the propocessed pickle file or create pickle file by your o
 python  preprocessing.py  --train_file path/to/your/file --val_file path/to/your/file --test_file path/to/your/file  --cache path/
 ```
 
-After this, your data folder should look like this:
+### Prepare pre-trained model
 
-```
-config/
-   ├── tnpcfg_r500_nt250_t500_curriculum0.yaml
-   ├── ...
-  
-data/
-   ├── ptb-train-lpcfg.pickle    
-   ├── ptb-val-lpcfg.pickle
-   ├── ptb-test-lpcfg.pickle
-   ├── ...
-   
-log/
-fastNLP/
-parser/
-train.py
-evaluate.py
-preprocessing.py
-```
+You can download our pre-trained model from [here](TBA) (TBA).
 
-## Train
+### Generating dataset for baseline
 
-**TN-PCFG**
+Build new dataset that composed with generated parse trees. \[`right-branched` / `left-brancehd` / `random` / `right-binarized` / `left-binarized`\] parse trees are generated for each sentence in given dataset.
 
-```
-python train.py  --conf tnpcfg_r500_nt250_t500_curriculum0.yaml
-```
-
-**Compound PCFG**
-
-```
-python train.py --conf cpcfg_nt30_t60_curriculum1.yaml
-```
-
-....
-
-## Evaluation
-
-For example, the saved directory should look like this:
-
-```
-log/
-   ├── NBLPCFG2021-01-26-07_47_29/
-   	  ├── config.yaml
-   	  ├── best.pt
-   	  ├── ...
-```
-
-python evaluate.py --load_from_dir log/NBLPCFG2021-01-26-07_47_29  --decode_type mbr --eval_dep 1 
-
-## Out-of-memory
-
-If you encounter OOM, you should adjust the batch size in the yaml file. Normally, for GPUs with 12GB memory, batch size=4~8 is ok, while for evaluation of NBL-PCFGs, you should set a smaller batch size (1 or 2).  
-
-## Pre-processing
-
-`extract_prob.py`: Generate probability distribution based on rule frequency of parse trees in dataset.
-
-```
-python -m preprocessing.extract_prob \
---filepath [path_to_dataset] \
---vocab [path_to_vocab] \
---output [path_to_output]
-```
-
-`generate_augmented_trees.py`: Add or Replace augmented sentence in dataset. Each augmented sentence generated based on POS tag of tokens in original sentence for given dataset.
-
-```
-python -m preprocessing.generate_augmented_trees \
---dataset [path_to_dataset] \
---noise_count [num_to_augmented] \
---noise_threshold [threshold]
-```
-
-`generate_focused_parse.py`: Build new dataset that composed with generated parse trees. \[right-branched / left-brancehd / random / right-binarized / left-binarized\] parse trees are generated for each sentence in given dataset.
-
-```
-python -m preprocessing.generate_focused_parse.py \
+```bash
+python -m preprocessing.generate_focused_parse \
 --factor [right-binarized] \
 --vocab [vocab/english.vocab] \
 --input [path_to_dataset] \
 --output [path_to_save]
 ```
 
+If you want to generate datasets for all languages, factors, and splits (train, valid, test):
+
+```bash
+./generate_focused_parse.sh
+```
+
+You can include or exclude options for languages, factors and splits in script.
+
+## Train
+
+**Parse-focused TN-PCFG**
+
+```bash
+python train.py \
+--conf tnpcfg_r500_nt250_t500_curriculum0.yaml
+```
+
+## Evaluation
+
+```bash
+python evaluate.py \
+--load_from_dir "log/NBLPCFG2021-01-26-07_47_29" \
+--decode_type mbr \
+--eval_dep 1 
+```
+
+## Paring
+
+```
+python parse.py --load_from_dir
+```
+
+## Out-of-memory
+
+If you encounter OOM, you should adjust the batch size in the yaml file. Normally, for GPUs with 12GB memory, batch size=4~8 is ok, while for evaluation of NBL-PCFGs, you should set a smaller batch size (1 or 2).  
+
 ## Post-processing
 
-`string_to_tree.py`: Transform parse trees with string format to NLTK Trees and save to file.
+### String to Tree
+
+Transform parse trees with string format to NLTK Trees and save to file.
 
 ```
 python -m postprocessing.string_to_tree \
@@ -121,7 +88,9 @@ python -m postprocessing.string_to_tree \
 --output "trees/train_seed0_trees.pt"
 ```
 
-`tree_to_span.py`: Transform parse trees with string format to spans and save to file.
+### Tree to Span
+
+Transform parse trees with string format to spans and save to file.
 
 ```
 python -m postprocessing.tree_to_span \
@@ -132,7 +101,7 @@ python -m postprocessing.tree_to_span \
 
 ## Analysis
 
-### Correlation
+### Correlation between F1 and NLL
 
 Each CSV Files have to have the following format:
 ```
@@ -147,24 +116,62 @@ f1 score, likelihood
 
 ### Trees
 
-`compare_trees.py`: Calculate F1 score and IoU score for given parse trees.
+(최종 정리 필요) `compare_trees.py`: `Tab. 1` Calculate F1 score and IoU score for given parse trees.
 
 `rule_frequency.py`: `Fig. 5` Visualize sorted distribution for frequencies that observed rules in parse trees.
 
-`common_uncommon_hist.py`: `Fig. 9` Visualize the degree of rareness for rules and the accuracy according to the degree of rareness.
+(정리 필요) `common_uncommon_hist.py`: `Fig. 9` Visualize the degree of rareness for rules and the accuracy according to the degree of rareness.
 
 ### The number of Unique rules
 
-`unique_rules_single.py`: `Fig. 3(a)`
+Visualize the number of unique rules for each sentence length.
 
-`unique_rules_comp.py`: `Fig. 3(b)`
+#### For single model in figure. (`Fig. 3(a)`) 
 
-`unique_rules_lang.py`: `Fig. 7`
+```bash
+python3 -m analyzer.unique_rules \
+--input "[CSV file path]" \
+--output "[Target output file]"
+```
+
+#### For different models in same figure. (`Fig. 3(b)`)
+
+Use same command with `Fig. 3(a)`, but CSV file have to involve `group id` column to distinguish each group.
+
+#### For each language in different sub-figures. (`Fig. 7`)
+
+The column `group id` represent as subtitle of figure.
+The following `tick_size`, `legend_size`, `label_size` is recommended for this figure.
+
+```bash
+python3 -m analyzer.unique_rules \
+--input "[CSV file path]" \
+--output "[Target output file path]" \
+--split_by_group \
+--n_col 5 \
+--n_row 2 \
+--tick_size 17 \
+--legend_size 17 \
+--label_size 30
+```
 
 ### Performance
 
-`homo_hetero.py`: `Fig. 6` Visualize the performance according to the combination of multi-parsers.
+Visualize the performance according to the combination of multi-parsers.
 
-## Drawing
+#### For absolute performance (`Fig. 10`)
 
-`ambiguity.py`: `Fig.1` landscape example
+```bash
+python3 -m analyzer.homo_hetero \
+--input "[CSV file path]" \
+--output "[output file path]" \
+```
+
+#### For difference between pre-trained parsers and trained models (`Fig. 6`)
+
+```bash
+python3 -m analyzer.homo_hetero \
+--input "[CSV file path]" \
+--output "[output file path]" \
+--difference
+```
