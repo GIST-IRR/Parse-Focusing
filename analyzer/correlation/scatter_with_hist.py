@@ -70,7 +70,6 @@ def main(filepath, xlabel, ylabel, output, bins=8):
     plt.yticks(fontsize=11)
 
     # Save figure
-    output = Path(output)
     plt.savefig(output.with_suffix(".png"), format="png", bbox_inches="tight")
     plt.savefig(output.with_suffix(".svg"), format="svg", bbox_inches="tight")
 
@@ -97,6 +96,7 @@ if __name__ == "__main__":
         type=str,
         default="results/f1_ll_scatter_with_hist.png",
         help="Path to the output file",
+        type=Path,
     )
     parser.add_argument(
         "--bins",

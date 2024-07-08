@@ -96,7 +96,6 @@ def main(
         plt.xlabel("Sentence Length", fontsize=label_size)
         plt.ylabel("Number of Rule Types", fontsize=label_size)
 
-    output_path = Path(output_path)
     plt.savefig(output_path.with_suffix(".png"), bbox_inches="tight")
     plt.savefig(
         output_path.with_suffix(".svg"), format="svg", bbox_inches="tight"
@@ -116,6 +115,7 @@ if __name__ == "__main__":
         required=True,
         help="The path to the output image file",
         default="eng_rule_util.png",
+        type=Path,
     )
     parser.add_argument(
         "--split_by_group",

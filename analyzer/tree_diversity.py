@@ -81,9 +81,9 @@ def main(
     }
     diversity_by_length = dict(sorted(diversity_by_length.items()))
 
-    for length, counter in uniqueness_by_length.items():
-        uniqueness_by_length[length] = dict(counter)
-        print(f"Length: {length}, Unique rules: {len(counter)}")
+    # for length, counter in uniqueness_by_length.items():
+    #     uniqueness_by_length[length] = dict(counter)
+    #     print(f"Length: {length}, Unique rules: {len(counter)}")
 
 
 if __name__ == "__main__":

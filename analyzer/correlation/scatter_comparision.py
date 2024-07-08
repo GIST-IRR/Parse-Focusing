@@ -72,7 +72,6 @@ def main(filepath, labels, xlabel, ylabel, output):
     plt.yticks(fontsize=11)
 
     # Save the figure.
-    output = Path(output)
     plt.savefig(output.with_suffix(".png"), format="png", bbox_inches="tight")
     plt.savefig(output.with_suffix(".svg"), format="svg", bbox_inches="tight")
 
@@ -105,6 +104,7 @@ if __name__ == "__main__":
         "--output",
         default="results/f1_ll_scatter_comparison.png",
         help="Path to the output file. The file extension determines the output format.",
+        type=Path,
     )
     args = parser.parse_args()
 

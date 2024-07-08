@@ -249,15 +249,22 @@ def pairwise_cosine_similarity(x, y=None, eps=1e-8, batch=False):
         return x_y
 
 
-def preprocess_span(span, length):
-    # Remove the trivial span
-    span = list(filter(lambda x: x[0] + 1 != x[1], span))
-    # Remove the entire sentence span
-    span = list(filter(lambda x: not (x[0] == 0 and x[1] == length), span))
-    # Remove label
-    span = [g[:2] for g in span]
-    # Convert to tuple
-    span = set(list(map(tuple, span)))
+def preprocess_span(
+    span, length, remove_trivial=True, remove_label=True, type="tuple"
+):
+    if remove_trivial:
+        # Remove the trivial span
+        span = list(filter(lambda x: x[0] + 1 != x[1], span))
+        # Remove the entire sentence span
+        span = list(filter(lambda x: not (x[0] == 0 and x[1] == length), span))
+    if remove_label:
+        # Remove label
+        span = [g[:2] for g in span]
+    if type == "tuple":
+        # Convert to tuple
+        span = set(list(map(tuple, span)))
+    elif type == "list":
+        span = set(span)
     return span
 
 

@@ -58,13 +58,12 @@ def draw_similarities(emb, type="KL", tag="rule", dirname=""):
 
 def main(config, model_path):
     model_args = get_config_from(config)
-    path = Path(model_path)
 
     # Get rule distribution from model
     # Model에서 rule distribution을 추출하는 코드를 분리하는게 좋지 않나?
     load_model.set_model_dir("parser/model")
     model = get_model_args(model_args.model, device="cuda:0")
-    with path.open("rb") as f:
+    with model_path.open("rb") as f:
         rules = torch.load(f, map_location="cuda:0")
     model.load_state_dict(rules["model"])
     model.eval()
@@ -89,20 +88,20 @@ def main(config, model_path):
         rule_emb = model.nonterms.nonterm_emb.clone().detach()
     except:
         rule_emb = None
-    draw_similarities(rule, "KL", "rule", f"{path.parent}")
-    draw_similarities(rule, "MI", "rule", f"{path.parent}")
-    draw_similarities(rule_emb, "L2", "rule", f"{path.parent}")
-    draw_similarities(rule_emb, "CS", "rule", f"{path.parent}")
+    draw_similarities(rule, "KL", "rule", f"{model_path.parent}")
+    draw_similarities(rule, "MI", "rule", f"{model_path.parent}")
+    draw_similarities(rule_emb, "L2", "rule", f"{model_path.parent}")
+    draw_similarities(rule_emb, "CS", "rule", f"{model_path.parent}")
 
     term = rules["unary"].clone().detach()
     try:
         term_emb = model.terms.term_emb.clone().detach()
     except:
         rule_emb = None
-    draw_similarities(term, "KL", "term", f"{path.parent}")
-    draw_similarities(term, "MI", "term", f"{path.parent}")
-    draw_similarities(term_emb, "L2", "term", f"{path.parent}")
-    draw_similarities(term_emb, "CS", "term", f"{path.parent}")
+    draw_similarities(term, "KL", "term", f"{model_path.parent}")
+    draw_similarities(term, "MI", "term", f"{model_path.parent}")
+    draw_similarities(term_emb, "L2", "term", f"{model_path.parent}")
+    draw_similarities(term_emb, "CS", "term", f"{model_path.parent}")
 
     print("done")
 
@@ -116,6 +115,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model_path",
         default="log/n_english_std_norig/NPCFG2022-12-27-17_31_28/last.pt",
+        type=Path,
     )
     args = parser.parse_args()
 

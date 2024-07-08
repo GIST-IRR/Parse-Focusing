@@ -46,7 +46,6 @@ def main(file_path, output_path, difference=False):
 
     plt.xticks(rotation=45, ha="right")
 
-    output_path = Path(output_path)
     plt.savefig(output_path.with_suffix(".png"), bbox_inches="tight")
     plt.savefig(
         output_path.with_suffix(".svg"), format="svg", bbox_inches="tight"
@@ -67,6 +66,7 @@ if __name__ == "__main__":
         required=True,
         help="The path to the output image file",
         default="results/homo_hetero_diff_test.png",
+        type=Path,
     )
     parser.add_argument("--difference", action="store_true")
     args = parser.parse_args()
