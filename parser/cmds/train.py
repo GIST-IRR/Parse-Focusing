@@ -1,12 +1,9 @@
 # -*- coding: utf-8 -*-
-from parser.helper.conflict_detector import ConflictDetector
-
 from datetime import datetime, timedelta
 from parser.cmds.cmd import CMD
 from parser.helper.metric import LikelihoodMetric, Metric
 from parser.helper.loader_wrapper import DataPrefetcher
 import torch
-import numpy as np
 
 # from parser.helper.util import *
 from parser.helper.data_module import DataModule
@@ -53,7 +50,7 @@ class Train(CMD):
             generator=generator,
             worker_init_fn=worker_init_fn,
         )
-        with open("word_vocab.pkl", "wb") as f:
+        with open(f"{args.save_dir}/word_vocab.pkl", "wb") as f:
             pickle.dump(dataset.word_vocab, f)
         # Update vocab size
         args.model.update({"V": len(dataset.word_vocab)})
@@ -68,78 +65,6 @@ class Train(CMD):
         self.optimizer = get_optimizer_args(
             args.optimizer, self.model.parameters(), checkpoint["optimizer"]
         )
-        # self.optimizer = get_optimizer_args(
-        #     args.optimizer, self.model.withoutTerm_parameters(),
-        #     checkpoint['optimizer']
-        # )
-        # self.term_optimizer = get_optimizer_args(
-        #     args.term_optimizer, self.model.terms.parameters()
-        # )
-
-        # Setup logger
-        self.conflict_detector = ConflictDetector(
-            dataset.train_dataset, self.model, self.optimizer
-        )
-
-        if hasattr(args, "pretrained_terms"):
-            # with open(args.pretrained_terms, 'rb') as f:
-            #     checkpoint = torch.load(f, map_location=self.device)
-            with open(args.pretrained_terms, "rb") as f:
-                terms_checkpoint = torch.load(f, map_location=self.device)
-            # with open(args.pretrained_nonterms, 'rb') as f:
-            #     nonterms_checkpoint = torch.load(f, map_location=self.device)
-
-            # Load pretrained terms
-            # model_dict = {
-            #     '.'.join(k.split('.')[1:]): v
-            #     for k, v in checkpoint['model'].items()
-            #     # if ('terms.' in k and 'nonterms.' not in k) or 'enc_' in k
-            #     if 'nonterms.' in k or 'enc_' in k
-            # }
-
-            # terms_model_dict = {
-            #     '.'.join(k.split('.')[1:]): v
-            #     for k, v in terms_checkpoint['model'].items()
-            #     if ('terms.' in k and 'nonterms.' not in k) or 'enc_' in k
-            #     # if 'nonterms.' in k or 'enc_' in k
-            # }
-            self.model.terms = torch.nn.Parameter(terms_checkpoint)
-            self.model.terms.requires_grad_(False)
-            # nonterms_model_dict = {
-            #     '.'.join(k.split('.')[1:]): v
-            #     for k, v in nonterms_checkpoint['model'].items()
-            #     # if ('terms.' in k and 'nonterms.' not in k) or 'enc_' in k
-            #     if 'nonterms.' in k or 'enc_' in k
-            # }
-
-            # self.model.nonterms.load_state_dict(nonterms_model_dict)
-            # for param in self.model.nonterms.parameters():
-            #     param.requires_grad_(False)
-
-            # self.model.terms.load_state_dict(terms_model_dict)
-            # for param in self.model.terms.parameters():
-            #     param.requires_grad_(False)
-
-            # for name, param in self.model.named_parameters():
-            #     if 'enc_' in name:
-            #         param.requires_grad_(False)
-
-            # if hasattr(self.model, 'enc'):
-            #     for param in self.model.enc.parameters():
-            #         param.requires_grad_(False)
-
-        # Load word embeddings
-        # self.word_vectors = gensim.models.KeyedVectors.load('word2vec-ptb-std.wordvectors')
-        # self.model.word_emb = nn.Parameter(torch.tensor(self.word_vectors.vectors, device=args.device))
-        # self.model.term_mlp2.weight = nn.Parameter(torch.tensor(self.word_vectors.vectors, device=args.device))
-
-        # weights = torch.tensor(self.word_vectors.vectors, device=args.device)
-        # self.model.word_emb = nn.Embedding.from_pretrained(weights)
-        # self.model.word_emb.requires_grad_(False)
-
-        # Load term embeddings
-        # with open('word2vec-ptb-std.means', 'rb') as f:
-        #     self.model.term_emb = nn.Parameter(torch.tensor(pickle.load(f), device=args.device))
 
         # Setup logger
         console_level = args.get("console_level", "INFO")
@@ -227,11 +152,6 @@ class Train(CMD):
                 if epoch > self.train_arg.warmup_epoch:
                     self.partition = True
 
-            # partition switch for each epoch
-            # self.writer.add_scalar(
-            #     'train/norm_switch', 1 if self.partition else 0, epoch
-            # )
-
             # curriculum learning. Used in compound PCFG.
             if train_arg.curriculum:
                 self.max_len = min(
@@ -271,11 +191,6 @@ class Train(CMD):
                         "filename": f"{k}_{self.iter}.png",
                     },
                 )
-                # tensor_to_heatmap(
-                #     self.model.metrics[k],
-                #     dirname=heatmap_dir,
-                #     filename=f'{k}_{self.iter}.png'
-                # )
             log.info(f"Epoch {epoch} / {train_arg.max_epoch}:")
 
             # Evaluation
@@ -309,10 +224,6 @@ class Train(CMD):
             }
             for k, v in metric_list.items():
                 self.writer.add_scalar(f"{tag}/{k}", v, epoch)
-
-            # partition function distribution
-            # for i, pf in enumerate(self.pf_sum):
-            #     self.writer.add_scalar(f'valid/marginal_{self.model.mode}', pf/dev_f1_metric.n, i)
 
             metric_dict = {
                 "f1_length": dev_f1_metric.sentence_uf1_l,

@@ -1,64 +1,50 @@
 # -*- coding: utf-8 -*-
 
-import os
+from pathlib import Path
+import argparse
+
 from parser.cmds import Evaluate
-import torch
-from easydict import EasyDict as edict
-from yaml import load, dump
 
-try:
-    from yaml import CLoader as Loader, CDumper as Dumper
-except ImportError:
-    from yaml import Loader, Dumper
-
-import click
-import random
-import numpy as np
+from torch_support.train_support import get_config_from
+from torch_support.device_support import set_device
+from torch_support.reproducibility import fix_seed
 
 
-@click.command()
-@click.option(
-    "--eval_dep", default=False, help="evaluate dependency, only for N(B)L-PCFG"
-)
-@click.option("--data_split", default="test")
-@click.option("--decode_type", default="mbr", help="viterbi or mbr")
-@click.option("--load_from_dir", default="")
-@click.option("--device", "-d", default="0")
-@click.option("--tag", "-t", default="best")
-def main(eval_dep, data_split, decode_type, load_from_dir, device, tag):
-    yaml_cfg = load(open(load_from_dir + "/config.yaml", "r"), Loader=Loader)
-    args = edict(yaml_cfg)
-    args.device = device
-    args.load_from_dir = load_from_dir
-    print(f"Set the device with ID {args.device} visible")
-    # os.environ['CUDA_VISIBLE_DEVICES'] = args.device
-    args.device = f"cuda:{args.device}" if torch.cuda.is_available() else "cpu"
+def evaluate(args2, device=None):
+    if device is not None:
+        args2.device = device
+
+    args2.conf = Path(args2.load_from_dir) / "config.yaml"
+    args = get_config_from(args2.conf)
+    args.update(args2.__dict__)
 
     # Set the random seed for reproducible experiments
     if hasattr(args, "seed"):
-        # Python
-        random.seed(args.seed)
-        # Numpy
-        np.random.seed(args.seed)
-        # Pytorch
-        torch.manual_seed(args.seed)
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-        # CUDA
-        torch.cuda.manual_seed(args.seed)
-        torch.cuda.manual_seed_all(args.seed)
-        if torch.version.cuda >= str(10.2):
-            os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
-            # or
-            # os.environ['CUBLAS_WORKSPACE_CONFIG']=':4096:2'
-        else:
-            os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+        fix_seed(args.seed, worker_init_fn=False, generator=False)
+
+    args.device = set_device(args.device)
 
     command = Evaluate()
     command(
-        args, data_split=data_split, decode_type=decode_type, eval_dep=eval_dep, tag=tag
+        args,
+        data_split=args.data_split,
+        decode_type=args.decode_type,
+        eval_dep=args.eval_dep,
+        tag=args.tag,
     )
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Evaluate the model")
+    parser.add_argument(
+        "--eval_dep",
+        default=False,
+        help="evaluate dependency, only for N(B)L-PCFG",
+    )
+    parser.add_argument("--data_split", default="test")
+    parser.add_argument("--decode_type", default="mbr", help="viterbi or mbr")
+    parser.add_argument("--load_from_dir", default="")
+    parser.add_argument("--device", "-d", default="0")
+    parser.add_argument("--tag", "-t", default="best")
+    args = parser.parse_args()
+    evaluate(args)

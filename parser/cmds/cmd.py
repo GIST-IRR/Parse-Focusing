@@ -1,21 +1,18 @@
 # -*- coding: utf-8 -*-
 import math
-import os
 from collections import defaultdict
 from pathlib import Path
 
 import torch
 import torch.nn as nn
 from tqdm import tqdm
-from parser.helper.metric import LikelihoodMetric, UF1, LossMetric, UAS
+from parser.helper.metric import LikelihoodMetric, UF1, UAS
 
 from utils import (
     depth_from_tree,
     sort_span,
     span_to_tree,
     save_rule_heatmap,
-    tensor_to_heatmap,
-    save_rule_ent_heatmap,
 )
 
 
@@ -27,7 +24,6 @@ class CMD(object):
         if train_arg.get("dambda_warmup"):
             if self.iter < train_arg.warmup_start:
                 dambda = 0
-                # self.dambda = 1
             elif (
                 self.iter >= train_arg.warmup_start
                 and self.iter < train_arg.warmup_end
@@ -39,42 +35,14 @@ class CMD(object):
                         / (self.num_batch / 8)
                     )
                 )
-                # self.dambda = 1 - self.dambda
             else:
-                # if not self.optim_flag:
-                #     self.optimizer, self.optimizer_tmp = \
-                #     self.optimizer_tmp, self.optimizer
-                #     self.optim_flag = True
                 dambda = 1
-                # self.dambda = 0
         elif train_arg.get("dambda_step"):
             bound = train_arg.total_iter * train_arg.dambda_step
             if self.iter < bound:
                 dambda = 0
-                # self.dambda = 1
             else:
-                # if not self.optim_flag:
-                #     self.optimizer, self.optimizer_tmp = \
-                #     self.optimizer_tmp, self.optimizer
-                #     self.optim_flag = True
                 dambda = 1
-                # self.dambda = 0
-
-            # self.dambda = self.model.entropy_rules(probs=True, reduce='mean')
-
-            # if self.iter > self.num_batch * train_arg.warmup_start:
-            #     ent = self.model.entropy_rules(probs=True, reduce='mean')
-            #     factor = min(1, max(0, (self.iter-self.num_batch*train_arg.warmup_start)/(self.num_batch*train_arg.warmup_iter)))
-            #     self.dambda = ent + factor * (1-ent)
-            # else:
-            #     self.dambda = 0
-
-            # self.dambda = self.model.entropy_rules(probs=True).mean()
-
-            # ent = self.model.entropy_rules(probs=True).mean()
-            # factor = min(1, max(0, (self.iter-20000)/70000))
-            # factor = min(1, self.iter/self.total_iter)
-            # self.dambda = ent + factor * (1-ent)
         else:
             dambda = 1
             # self.dambda = 0
@@ -99,17 +67,7 @@ class CMD(object):
 
         metrics = self.total_metrics
         for k, v in metrics.items():
-            # self.writer.add_scalar(
-            #     f"train/{k}", metrics[k].mean().item() / step, iter
-            # )
             self.writer.add_scalar(f"train/{k}", metrics[k] / step, iter)
-
-        # Log entropy of each rule distributions
-        # self.writer.add_scalar(
-        #     "train/rule_entropy",
-        #     self.model.entropy("rule", probs=True, reduce="mean"),
-        #     iter,
-        # )
 
         # initialize metrics
         self.total_loss = 0
@@ -125,71 +83,10 @@ class CMD(object):
             )
             self.pf = []
 
-        # for k, v in self.model.rules.items():
-        #     if not isinstance(v, torch.Tensor):
-        #         continue
-        # self.writer.add_histogram(
-        #     f"train/{k}_prob", v.detach().cpu(), iter
-        # )
-        # if v.grad is not None:
-        #     self.writer.add_histogram(
-        #         f"train/{k}_grad", v.grad.detach().cpu(), iter
-        #     )
-
-        # Rule distribution histogram
-        # for k, v in self.model.rules.items():
-        #     if not isinstance(v, torch.Tensor):
-        #         continue
-        #     if k == "root":
-        #         self.writer.add_histogram(
-        #             f"train/{k}_prob", v.detach().cpu()[0], iter
-        #         )
-        #         if v.grad is not None:
-        #             self.writer.add_histogram(
-        #                 f"train/{k}_grad", v.grad.detach().cpu(), iter
-        #             )
-        #     elif k == "rule":
-        #         for i in range(v.shape[0]):
-        #             self.writer.add_histogram(
-        #                 f"train/{k}_prob_{i}", v[i].detach().cpu(), iter
-        #             )
-        #             if v.grad is not None:
-        #                 self.writer.add_histogram(
-        #                     f"train/{k}_grad_{i}",
-        #                     v.grad[i].detach().cpu(),
-        #                     iter,
-        #                 )
-        #     elif k == "unary":
-        #         for i in range(v.shape[0]):
-        #             self.writer.add_histogram(
-        #                 f"train/{k}_prob_{i}", v[i].detach().cpu(), iter
-        #             )
-        #             if v.grad is not None:
-        #                 self.writer.add_histogram(
-        #                     f"train/{k}_grad_{i}",
-        #                     v.grad[i].detach().cpu(),
-        #                     iter,
-        #                 )
-        #     else:
-        #         pass
         return
-
-    def prev_rules(self):
-        # if 'prev_rules' not in locals():
-        #     pass
-        #     # save_rule_heatmap(self.model.rules, dirname='figure', filename=f'rule_gradient_{self.iter}.png', grad=True, root=False, unary=False)
-        # else:
-        #     diff = {}
-        #     for k in self.model.rules.keys():
-        #         diff[k] = self.model.rules[k] - prev_rules[k]
-        #     save_rule_heatmap(diff, dirname='figure', filename=f'rule_diff_{self.iter}.png', root=False, unary=True)
-        # prev_rules = self.model.rules
-        # self.conflict_detector.calculate_prior(x)
-        pass
 
     def train(self, loader):
         self.model.train()
-        t = tqdm(loader, total=int(len(loader)), position=0, leave=True)
         train_arg = self.args.train
 
         # Make directory for saving heatmaps
@@ -197,18 +94,13 @@ class CMD(object):
         if not heatmap_dir.exists():
             heatmap_dir.mkdir(parents=True, exist_ok=True)
 
-        # parser = False if self.epoch > 1 else True
-
-        # if self.epoch > 2 and self.epoch <= 3:
-        #     parser = True
-        # else:
-        #     parser = False
-
-        parser = True
-        # parser = False
-
-        # print(f"Epoch {self.epoch} parser: {parser}")
-
+        t = tqdm(
+            loader,
+            total=int(len(loader)),
+            position=0,
+            leave=True,
+            desc="Traing",
+        )
         for x, y in t:
             # Parameter update
             if not hasattr(train_arg, "warmup_epoch") and hasattr(
@@ -233,39 +125,21 @@ class CMD(object):
                     loss, z_l = self.model.loss(
                         x, partition=self.partition, soft=True
                     )
-                    # t_loss = (loss + self.dambda * z_l).mean()
-                    # t_loss = (loss + 0.5 * z_l).mean()
                     t_loss = (loss + z_l).mean()
-
-                    # self.model.soft_backward(
-                    #     loss, z_l, self.optimizer,
-                    #     dambda=self.dambda,
-                    #     target="parameter"
-                    # )
                 else:
-                    loss = self.model.loss(x, parser=parser, temp=self.temp)
+                    loss = self.model.loss(x, temp=self.temp)
                     z_l = None
                     t_loss = loss.mean()
 
                 t_loss.backward()
 
-                # loss = loss.mean()
-                # if z_l is not None:
-                #     z_l = z_l.mean()
-                # on the renormalization trick,
-                # z_l is the sentence probability
                 loss = z_l.mean() if z_l is not None else loss.mean()
 
             else:
-                # loss = self.model.loss(x, partition=self.partition)
-                # loss = self.model.loss(
-                #     x, partition=self.partition, parser=parser
-                # )
                 loss = self.model.loss(
                     x, partition=self.partition, gold_tree=gold_tree
                 )
                 loss = loss.mean()
-                # loss = loss.logsumexp(-1)
 
                 loss.backward()
 
@@ -277,11 +151,6 @@ class CMD(object):
 
             # Gradient update
             self.optimizer.step()
-            # self.term_optimizer.step()
-            # self.model.clear_grammar()
-
-            # Temp
-            # self.conflict_detector.calculate_posterior()
 
             # writer
             self.total_loss += loss.item()
@@ -313,31 +182,8 @@ class CMD(object):
                         filename=f"rule_dist_{self.iter}.png",
                         batched=batched,
                     )
-                    # save_rule_ent_heatmap(
-                    #     self.model.rules,
-                    #     dirname=heatmap_dir,
-                    #     filename=f"rule_ent_{self.iter}.png",
-                    # )
-                    # tensor_to_heatmap(
-                    #     self.model.rules["nonterm_cs"],
-                    #     batch=False,
-                    #     dirname=heatmap_dir,
-                    #     filename=f"nonterm_cs_{self.iter}.png",
-                    #     vmin=self.model.rules['nonterm_cs'].min(),
-                    #     vmax=self.model.rules['nonterm_cs'].max(),
-                    # )
-                    # tensor_to_heatmap(
-                    #     self.model.rules["term_cs"],
-                    #     batch=False,
-                    #     dirname=heatmap_dir,
-                    #     filename=f"term_cs_{self.iter}.png",
-                    #     vmin=self.model.rules['term_cs'].min(),
-                    #     vmax=self.model.rules['term_cs'].max(),
-                    # )
-
             self.log_step(self.iter, start=0, step=1000)
 
-            # prev_rules = self.model.rules
             # Check total iteration
             self.iter += 1
         return
@@ -370,7 +216,13 @@ class CMD(object):
         metric_uas = UAS()
         metric_ll = LikelihoodMetric()
 
-        t = tqdm(loader, total=int(len(loader)), position=0, leave=True)
+        t = tqdm(
+            loader,
+            total=int(len(loader)),
+            position=0,
+            leave=True,
+            desc="Validation",
+        )
         print("decoding mode:{}".format(decode_type))
         print("evaluate_dep:{}".format(eval_dep))
 
