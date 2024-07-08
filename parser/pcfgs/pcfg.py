@@ -1209,9 +1209,10 @@ class Faster_PCFG(PCFG_base):
 
             # Get Mask
             if tree is not None:
-                child_mask = tree[
-                    :, torch.arange(n), torch.arange(n) + w
-                ].log()
+                child_mask = (
+                    tree[:, torch.arange(n), torch.arange(n) + w] + 1e-9
+                )
+                child_mask = child_mask.log()
                 if child_mask.dim() == 2:
                     child_mask = child_mask[..., None]
 
@@ -1222,9 +1223,7 @@ class Faster_PCFG(PCFG_base):
                 if tree is not None:
                     diagonal_copy_(
                         s,
-                        (Xyz(Y_term, Z_term, X_y_z) + child_mask).clamp(
-                            min=-1e9
-                        )
+                        (Xyz(Y_term, Z_term, X_y_z) + child_mask)
                         + span_indicator[
                             :, torch.arange(n), torch.arange(n) + w
                         ].unsqueeze(-1),
@@ -1256,7 +1255,7 @@ class Faster_PCFG(PCFG_base):
             if tree is not None:
                 diagonal_copy_(
                     s,
-                    (contract(x, dim=0) + child_mask).clamp(min=-1e9)
+                    (contract(x, dim=0) + child_mask)
                     + span_indicator[
                         :, torch.arange(n), torch.arange(n) + w
                     ].unsqueeze(-1),

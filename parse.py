@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
+import argparse
 
-import os
-from parser.cmds import Evaluate
 import torch
 from easydict import EasyDict as edict
 
@@ -15,7 +14,6 @@ except ImportError:
 import click
 import random
 import pickle
-import numpy as np
 from pathlib import Path
 from collections import defaultdict
 
@@ -23,7 +21,6 @@ from tqdm import tqdm
 from nltk import Tree
 
 from fastNLP.core.dataset import DataSet
-from fastNLP.core.vocabulary import Vocabulary
 from fastNLP.core.batch import DataSetIter
 from torch.utils.data import Sampler
 
@@ -32,13 +29,11 @@ from parser.helper.metric import LikelihoodMetric, UF1
 
 from torch_support.load_model import (
     get_model_args,
-    get_optimizer_args,
     set_model_dir,
 )
 
 from utils import (
     tree_to_span,
-    depth_from_tree,
     sort_span,
     span_to_tree,
 )
@@ -109,21 +104,7 @@ def get_dataset(filepath, vocab):
     return dataset
 
 
-@click.command()
-@click.option("--filepath", required=True)
-@click.option("--output", required=True)
-@click.option("--vocab", required=True)
-@click.option("--batch_size", default=4)
-@click.option(
-    "--eval_dep",
-    default=False,
-    help="evaluate dependency, only for N(B)L-PCFG",
-)
-@click.option("--data_split", default="test")
-@click.option("--decode_type", default="mbr", help="viterbi or mbr")
-@click.option("--load_from_dir", default="")
-@click.option("--device", "-d", default="0")
-@click.option("--tag", "-t", default="best")
+# TODO: Edit for scheduler
 def main(
     filepath,
     output,
@@ -131,7 +112,6 @@ def main(
     load_from_dir,
     batch_size,
     eval_dep,
-    data_split,
     decode_type,
     device,
     tag,
@@ -154,6 +134,8 @@ def main(
     model.load_state_dict(checkpoint["model"])
     print("successfully load")
 
+    dataset = dataset.drop(lambda x:x['seq_len'] < 0, inplace=False)
+    dataset = dataset.drop(lambda x:x['seq_len'] > 40, inplace=False)
     sampler = ByLengthSampler(dataset=dataset, batch_size=batch_size)
     dataloader = DataSetIter(dataset=dataset, batch_sampler=sampler)
     autoloader = DataPrefetcher(dataloader, device=device)
@@ -161,7 +143,7 @@ def main(
     with torch.no_grad():
         model.eval()
 
-        metric_f1 = UF1()
+        metric_f1 = UF1(n_nonterms=model.NT, n_terms=model.T)
         metric_ll = LikelihoodMetric()
 
         t = tqdm(
@@ -210,14 +192,6 @@ def main(
             pred_tree[p] = pred["sentence"][i]
         output_tree.append(pred_tree._pformat_flat("", "()", False))
 
-    # for t in parse_trees:
-    #     idx = sentences.index(t["sentence"])
-    #     pred_tree = span_to_tree(t["pred_tree"])
-    #     word_pos = pred_tree.treepositions("leaves")
-    #     for i, p in enumerate(word_pos):
-    #         pred_tree[p] = t["sentence"][i]
-    #     output_tree[idx] = pred_tree._pformat_flat("", "()", False)
-
     output_path = Path(output)
     output_path.write_text("\n".join(output_tree))
     gold_path = output_path.with_suffix(".gold.txt")
@@ -226,4 +200,52 @@ def main(
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Parse the dataset")
+    parser.add_argument(
+        "--filepath", required=True, help="The path to the dataset"
+    )
+    parser.add_argument(
+        "--output", required=True, help="The path to the output file"
+    )
+    parser.add_argument(
+        "--vocab", required=True, help="The path to the vocabulary file"
+    )
+    parser.add_argument(
+        "--batch_size", default=4, type=int, help="The batch size for parsing"
+    )
+    parser.add_argument(
+        "--eval_dep",
+        default=False,
+        help="evaluate dependency, only for N(B)L-PCFG",
+    )
+    parser.add_argument(
+        "--data_split", default="test", help="The data split to parse"
+    )
+    parser.add_argument(
+        "--decode_type",
+        default="mbr",
+        help="The decoding type for parsing",
+    )
+    parser.add_argument(
+        "--load_from_dir",
+        default="",
+        help="The directory to load the model",
+    )
+    parser.add_argument(
+        "--device", "-d", default="0", help="The device to run the model"
+    )
+    parser.add_argument(
+        "--tag", "-t", default="best", help="The tag of the model"
+    )
+    args = parser.parse_args()
+    main(
+        args.filepath,
+        args.output,
+        args.vocab,
+        args.load_from_dir,
+        args.batch_size,
+        args.eval_dep,
+        args.decode_type,
+        args.device,
+        args.tag,
+    )

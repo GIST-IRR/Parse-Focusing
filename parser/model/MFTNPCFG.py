@@ -114,10 +114,14 @@ class MFTNPCFG(PCFG_module):
                 parses = defaultdict(list)
                 with open(model, "rb") as f:
                     pts = torch.load(f)
+                if isinstance(pts, dict):
+                    pts = pts["trees"]
                 for t in pts:
                     n_word = t["word"]
                     if "pred_tree" in t.keys():
-                        n_tree = [s for s in t["pred_tree"] if s[1] - s[0] > 1]
+                        n_tree = [
+                            s[:2] for s in t["pred_tree"] if s[1] - s[0] > 1
+                        ]
                     elif "tree" in t.keys():
                         n_tree = [s[:2] for s in t["tree"] if s[1] - s[0] > 1]
                     parses[str(n_word)] = n_tree

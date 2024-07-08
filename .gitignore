@@ -43,3 +43,4 @@ analyzer/raw/
 fig_rule_util/
 extracted/
 rule_utilization/
+eval.sh

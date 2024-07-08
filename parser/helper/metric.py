@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from collections import Counter, defaultdict, OrderedDict
+from collections import defaultdict
 import torch
 
 
@@ -135,6 +135,7 @@ class UF1(Metric):
             gold = set(gold)
             pred = set(pred)
             overlap = pred.intersection(gold)
+
             # # Old version
             # prec = float(len(overlap)) / (len(pred) + self.eps)
             # reca = float(len(overlap)) / (len(gold) + self.eps)
@@ -144,21 +145,19 @@ class UF1(Metric):
             #         prec = 1.0
 
             # New version
-            if len(pred) == 0 and len(overlap) == 0:
-                prec = 1
-            elif len(pred) == 0 and len(overlap) != 0:
-                prec = 0
-            else:
-                prec = float(len(overlap)) / len(pred)
-
-            if len(gold) == 0 and len(overlap) == 0:
-                reca = 1
-            elif len(gold) == 0 and len(overlap) != 0:
-                reca = 0
+            # eps disrrupt the accuracy of the f1 score.
+            if len(gold) == 0:
+                reca = 1.0
+                if len(pred) == 0:
+                    prec = 1
+                else:
+                    prec = 0
             else:
                 reca = float(len(overlap)) / len(gold)
+                prec = float(len(overlap)) / len(pred)
 
-            f1 = 2 * prec * reca / (prec + reca + 1e-8)
+            f1 = 2 * prec * reca / (prec + reca + self.eps)
+            # If gold parse trees are not binary, cannot get fully exact tree.
             # ex = 1 if (1 - f1) < (self.eps*2) else 0
             ex = 1 if (1 - reca) < self.eps else 0
             self.prec += prec

@@ -5,12 +5,6 @@ import torch
 
 
 class TDPCFG(PCFG_base):
-    # def __init__(self):
-    #     super(TDPCFG, self).__init__()
-
-    # def loss(self, rules, lens):
-    #     return self._inside(rules, lens)
-
     @torch.enable_grad()
     def _inside(
         self, rules, terms, lens, mbr=False, viterbi=False, label=False
@@ -365,7 +359,7 @@ class Fastest_TDPCFG(PCFG_base):
                 Z_normalizer.clone(),
                 span_indicator[
                     :, torch.arange(n), w + torch.arange(n)
-                ].unsqueeze(-1)
+                ].unsqueeze(-1),
                 # span_indicator[:, torch.arange(n), w + torch.arange(n)]
             )
 
@@ -651,7 +645,7 @@ class KL_FTDPCFG(PCFG_base):
                 Z_normalizer.clone(),
                 span_indicator[
                     :, torch.arange(n), w + torch.arange(n)
-                ].unsqueeze(-1)
+                ].unsqueeze(-1),
                 # span_indicator[:, torch.arange(n), w + torch.arange(n)]
             )
 
