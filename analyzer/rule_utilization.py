@@ -8,7 +8,7 @@ import numpy as np
 import torch
 
 from nltk import Tree
-from utils import clean_symbol
+from utils import clean_symbol, clean_word
 
 
 def main(
@@ -45,6 +45,7 @@ def main(
 
     # Count unary productions
     rule_utilization = defaultdict(lambda: Counter())
+    term_rule_util = defaultdict(lambda: Counter())
 
     for t in trees:
         length = len(t.leaves())
@@ -60,6 +61,8 @@ def main(
             if not isinstance(p.rhs()[0], str) and p.lhs().symbol() != "ROOT"
             # if not isinstance(p.rhs()[0], str)
         ]
+
+        term_prod = [p for p in t.productions() if isinstance(p.rhs()[0], str)]
 
         # Clean symbol
         def clean_rule(rule):
@@ -77,12 +80,32 @@ def main(
                 r._symbol = rhs[i]
             return n_rule
 
+        def clean_unary(rule):
+            n_rule = deepcopy(rule)
+            lhs = clean_symbol(
+                rule.lhs().symbol(), xbar=xbar, cleanSubtag=clean_subtag
+            )
+            rhs = vocab.to_index(clean_word(rule.rhs())[0])
+            rhs = vocab.to_word(rhs)
+            n_rule.lhs()._symbol = lhs
+            n_rule._rhs = (rhs,)
+            return n_rule
+
         if clean_label:
             prod = list(map(clean_rule, prod))
+            term_prod = list(map(clean_unary, term_prod))
 
         # Count rules
         # prod = set(prod)
         rule_utilization[length].update(prod)
+        for p in term_prod:
+            term_rule_util[p.lhs()._symbol].update([p.rhs()[0]])
+
+    term_util_prob = defaultdict(lambda: defaultdict())
+    for length, counter in term_rule_util.items():
+        total = counter.total()
+        for term, count in counter.items():
+            term_util_prob[length][term] = count / total
 
     total_ru = defaultdict(int)
     for l, d in rule_utilization.items():
@@ -92,6 +115,15 @@ def main(
         k: v
         for k, v in sorted(total_ru.items(), key=lambda x: x[1], reverse=True)
     }
+    total_ru_by_symbol = defaultdict(
+        lambda: defaultdict(lambda: defaultdict())
+    )
+    for r, v in total_ru.items():
+        lhs = r.lhs()._symbol
+        rhs_0 = r.rhs()[0]._symbol
+        rhs_1 = r.rhs()[1]._symbol
+        total_ru_by_symbol[lhs][rhs_0][rhs_1] = v
+
     torch.save(total_ru, f"rule_utilization/{Path(filepath).stem}.pt")
     # Counter to dict
     # n_uniqueness_by_length = {}
@@ -114,6 +146,9 @@ def main(
 
 
 if __name__ == "__main__":
+    total_ru_by_symbol = defaultdict(
+        lambda: defaultdict(lambda: defaultdict())
+    )
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--filepath",

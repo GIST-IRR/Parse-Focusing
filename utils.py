@@ -170,8 +170,8 @@ def depth_from_tree(tree):
 
 
 def sort_span(span):
-    span = [sorted(p, key=lambda x: x[1], reverse=True) for p in span]
-    span = [sorted(p, key=lambda x: x[0]) for p in span]
+    span = sorted(span, key=lambda x: x[1], reverse=True)
+    span = sorted(span, key=lambda x: x[0])
     return span
 
 

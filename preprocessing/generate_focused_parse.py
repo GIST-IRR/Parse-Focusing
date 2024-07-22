@@ -28,7 +28,7 @@ def branching(len, factor="left-branching"):
         trees = [(i, len) for i in range(len - 1)]
     elif factor == "random":
         trees = random_split(0, len)
-        trees = sort_span([trees])[0]
+        trees = sort_span(trees)
     return trees
 
 

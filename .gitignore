@@ -16,6 +16,7 @@ weights/
 *.pkl
 *.pt
 trees/
+!analyzer/trees/
 EVALB/
 scheduler/
 vocab/
