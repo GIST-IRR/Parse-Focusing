@@ -52,9 +52,11 @@ class Nonterm_parameterizer(nn.Module):
         return head, left, right
 
 
-class MFTNPCFG(PCFG_module):
+class PFTNPCFG(PCFG_module):
+    """Parse focused TN-PCFG"""
+
     def __init__(self, args):
-        super(MFTNPCFG, self).__init__()
+        super(PFTNPCFG, self).__init__()
         self.pcfg = Fastest_TDPCFG()
         self.part = TDPartitionFunction()
         self.args = args
@@ -71,39 +73,36 @@ class MFTNPCFG(PCFG_module):
         self.embedding_sharing = getattr(args, "embedding_sharing", False)
         self.mask_mode = getattr(args, "mask_mode", "soft")
 
+        # Embeddings
+        self.nonterm_emb = nn.Parameter(torch.randn(self.NT, self.s_dim))
+        self.term_emb = nn.Parameter(torch.randn(self.T, self.s_dim))
+
         if self.embedding_sharing:
             print("embedding sharing")
-            # Embeddings
-            self.nonterm_emb = nn.Parameter(torch.randn(self.NT, self.s_dim))
-            self.term_emb = nn.Parameter(torch.randn(self.T, self.s_dim))
-
-            # root
-            self.root = Root_parameterizer(
-                self.s_dim, self.NT, nonterm_emb=self.nonterm_emb
-            )
-            #
-            # Nonterms
-            self.nonterms = Nonterm_parameterizer(
-                self.s_dim,
-                self.NT,
-                self.T,
-                self.r,
-                nonterm_emb=self.nonterm_emb,
-                term_emb=self.term_emb,
-            )
-            # terms
-            self.terms = Term_parameterizer(
-                self.s_dim, self.T, self.V, term_emb=self.term_emb
-            )
+            nonterm_emb = None
+            term_emb = None
         else:
-            self.nonterm_emb = nn.Parameter(torch.randn(self.NT, self.s_dim))
-            self.term_emb = nn.Parameter(torch.randn(self.T, self.s_dim))
-            # Root
-            self.root = Root_parameterizer(self.s_dim, self.NT)
-            self.nonterms = Nonterm_parameterizer(
-                self.s_dim, self.NT, self.T, self.r
-            )
-            self.terms = Term_parameterizer(self.s_dim, self.T, self.V)
+            nonterm_emb = self.nonterm_emb
+            term_emb = self.term_emb
+
+        # root
+        self.root = Root_parameterizer(
+            self.s_dim, self.NT, nonterm_emb=nonterm_emb
+        )
+        #
+        # Nonterms
+        self.nonterms = Nonterm_parameterizer(
+            self.s_dim,
+            self.NT,
+            self.T,
+            self.r,
+            nonterm_emb=nonterm_emb,
+            term_emb=term_emb,
+        )
+        # terms
+        self.terms = Term_parameterizer(
+            self.s_dim, self.T, self.V, term_emb=term_emb
+        )
 
         self._initialize(mode="xavier_normal")
 

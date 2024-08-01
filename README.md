@@ -1,15 +1,19 @@
 # Parse-focused Neural PCFG
 
-Source code of ACL2024 Findings [Structural Optimization Ambiguity and Simplicity Bias in Unsupervised Neural Grammar Induction] (TBA)(TBA).
+Source code of ACL2024 Findings [Structural Optimization Ambiguity and Simplicity Bias in Unsupervised Neural Grammar Induction](https://arxiv.org/abs/2407.16181).
 Our code edited based on [TN-PCFG](https://github.com/sustcsonglin/TN-PCFG).
+
+## Overview
+
+![Overview](images/overview_pfnpcfg_bg.jpg)
 
 ## Setup
 
 ### Prepare environment 
 
-```
-conda create -n ungi python=3.11
-conda activate ungi
+```bash
+conda create -n swpf python=3.11
+conda activate swpf
 pip install -r requirements.txt
 ```
 
@@ -19,7 +23,7 @@ If you need to download the datasets, please refer to [TN-PCFG](https://github.c
 
 You can directly use the propocessed pickle file or create pickle file by your own
 
-```
+```bash
 python  preprocessing.py  --train_file path/to/your/file --val_file path/to/your/file --test_file path/to/your/file  --cache path/
 ```
 
@@ -53,21 +57,21 @@ You can include or exclude options for languages, factors and splits in script.
 
 ```bash
 python train.py \
---conf tnpcfg_r500_nt250_t500_curriculum0.yaml
+--conf pftnpcfg_r500_nt250_t500_curriculum0.yaml
 ```
 
 ## Evaluation
 
 ```bash
 python evaluate.py \
---load_from_dir "log/NBLPCFG2021-01-26-07_47_29" \
+--load_from_dir "[PATH TO LOG]" \
 --decode_type mbr \
 --eval_dep 1 
 ```
 
 ## Paring
 
-```
+```bash
 python parse.py --load_from_dir
 ```
 
@@ -81,7 +85,7 @@ If you encounter OOM, you should adjust the batch size in the yaml file. Normall
 
 Transform parse trees with string format to NLTK Trees and save to file.
 
-```
+```bash
 python -m postprocessing.string_to_tree \
 --filepath "trees/train_seed0.txt" \
 --vocab "vocab/english.vocab" \
@@ -92,7 +96,7 @@ python -m postprocessing.string_to_tree \
 
 Transform parse trees with string format to spans and save to file.
 
-```
+```bash
 python -m postprocessing.tree_to_span \
 --filepath "trees/train_seed0_trees.pt" \
 --vocab "vocab/english.vocab" \

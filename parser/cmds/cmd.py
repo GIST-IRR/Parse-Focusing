@@ -2,6 +2,7 @@
 import math
 from collections import defaultdict
 from pathlib import Path
+from itertools import chain
 
 import torch
 import torch.nn as nn
@@ -99,7 +100,7 @@ class CMD(object):
             total=int(len(loader)),
             position=0,
             leave=True,
-            desc="Traing",
+            desc="Training",
         )
         for x, y in t:
             # Parameter update
@@ -137,7 +138,10 @@ class CMD(object):
 
             else:
                 loss = self.model.loss(
-                    x, partition=self.partition, gold_tree=gold_tree
+                    x,
+                    partition=self.partition,
+                    gold_tree=gold_tree,
+                    pos=y["pos"],
                 )
                 loss = loss.mean()
 
@@ -254,7 +258,7 @@ class CMD(object):
                 self.sequence_length[l.item()] += 1
 
             # Save predicted parse trees
-            result["prediction"] = sort_span(result["prediction"])
+            result["prediction"] = list(map(sort_span, result["prediction"]))
             self.parse_trees += [
                 {
                     "sentence": y["sentence"][i],

@@ -85,6 +85,7 @@ def get_dataset(filepath, vocab):
             data["word"].append(tree.leaves())
             data["gold_tree"].append(tree_to_span(tree))
             data["tree_str"].append(line.strip())
+            data["pos"].append([p[1] for p in tree.pos()])
 
     dataset.add_field("sentence", data["word"], ignore_type=True)
     dataset.add_field(
@@ -93,6 +94,7 @@ def get_dataset(filepath, vocab):
     dataset.add_field(
         "tree_str", data["tree_str"], padder=None, ignore_type=True
     )
+    dataset.add_field("pos", data["pos"], padder=None, ignore_type=True)
     dataset.add_seq_len(field_name="sentence", new_field_name="seq_len")
     dataset.apply_field(clean_word, "sentence", "word")
 
@@ -100,13 +102,13 @@ def get_dataset(filepath, vocab):
 
     dataset = dataset.drop(lambda x: x["seq_len"] == 1, inplace=True)
     dataset.set_input("word", "seq_len")
-    dataset.set_target("sentence", "gold_tree", "tree_str")
+    dataset.set_target("sentence", "gold_tree", "tree_str", "pos")
     return dataset
 
 
 # TODO: Edit for scheduler
 def main(
-    filepath,
+    dataset_path,
     output,
     vocab,
     load_from_dir,
@@ -123,9 +125,9 @@ def main(
     device = f"cuda:{device}" if torch.cuda.is_available() else "cpu"
 
     word_vocab = pickle.load(open(vocab, "rb"))
-    dataset = get_dataset(filepath, word_vocab)
+    dataset = get_dataset(dataset_path, word_vocab)
 
-    args.model.update({"V": len(word_vocab)})
+    args.model.update({"V": len(word_vocab) + 3})
     set_model_dir("parser.model")
     model = get_model_args(args.model, device)
 
@@ -134,8 +136,8 @@ def main(
     model.load_state_dict(checkpoint["model"])
     print("successfully load")
 
-    dataset = dataset.drop(lambda x:x['seq_len'] < 0, inplace=False)
-    dataset = dataset.drop(lambda x:x['seq_len'] > 40, inplace=False)
+    dataset = dataset.drop(lambda x: x["seq_len"] < 0, inplace=False)
+    dataset = dataset.drop(lambda x: x["seq_len"] > 40, inplace=False)
     sampler = ByLengthSampler(dataset=dataset, batch_size=batch_size)
     dataloader = DataSetIter(dataset=dataset, batch_sampler=sampler)
     autoloader = DataPrefetcher(dataloader, device=device)
@@ -156,15 +158,17 @@ def main(
         for x, y in t:
             result = model.evaluate(
                 x,
+                y["pos"],
                 decode_type=decode_type,
                 eval_dep=eval_dep,
             )
             # Save predicted parse trees
-            result["prediction"] = sort_span(result["prediction"])
+            result["prediction"] = list(map(sort_span, result["prediction"]))
             parse_trees += [
                 {
                     "sentence": y["sentence"][i],
-                    "word": x["word"][i].tolist(),
+                    # "word": x["word"][i].tolist(),
+                    "word": result["word"].tolist(),
                     "gold_tree": y["gold_tree"][i],
                     "pred_tree": result["prediction"][i],
                 }
@@ -202,7 +206,7 @@ def main(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Parse the dataset")
     parser.add_argument(
-        "--filepath", required=True, help="The path to the dataset"
+        "--dataset", required=True, help="The path to the dataset"
     )
     parser.add_argument(
         "--output", required=True, help="The path to the output file"
@@ -239,7 +243,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     main(
-        args.filepath,
+        args.dataset,
         args.output,
         args.vocab,
         args.load_from_dir,

@@ -1,4 +1,4 @@
-.gitignore
+# ENV and CACHE
 data/
 log/
 .vscode/
@@ -16,32 +16,41 @@ weights/
 *.pkl
 *.pt
 trees/
+
+# Analyzer
 !analyzer/trees/
+analyzer/raw/
+
+# EVALB
 EVALB/
-scheduler/
-vocab/
+evalb-test/
+evalb.py
+eval.sh
+
+# ETC.
 *.png
 *.svg
+*.gif
+*.prog
+
+scheduler/
+vocab/
+
 noised_output/
-evalb-test/
 gold_trees/
 parsed/
 parsed_span/
-test_dist/
-evalb_test.txt
-pred.txt
-*.gif
-*.prog
-prototype/
+
 model/
+!parser/model/
+parser/model/prototype/
+
 results/
 raw_trees/
 stash/
 collect.sh
 drawing/
 achieving/
-analyzer/raw/
 fig_rule_util/
 extracted/
 rule_utilization/
-eval.sh
