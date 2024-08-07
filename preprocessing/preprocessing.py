@@ -1,13 +1,6 @@
 from nltk.tree import Tree
-from nltk.grammar import Nonterminal
-
-from fastNLP.core.dataset import DataSet
-from fastNLP.core.vocabulary import Vocabulary
-
 import argparse
 import pickle
-from collections import defaultdict
-import os
 from typing import List, Union
 from pathlib import Path
 
@@ -263,7 +256,7 @@ def redistribution(args):
     print(f"[INFO] Dataset will be saved on {args.save_dir}.")
     if not args.save_dir.exists():
         print(f"[INFO] Creating save path...", end="")
-        args.save_dir.makedirs(exist_ok=True)
+        args.save_dir.mkdir(exist_ok=True)
         print(f"DONE.")
 
     # # save sentence
