@@ -29,10 +29,6 @@ python -m preprocessing.preprocessing \
 --save_dir [path_to_save_dataset]
 ```
 
-### (Optional) Prepare pre-trained model
-
-You can download our pre-trained model from [here](TBA) (TBA).
-
 ### (Optional) Generating dataset for baseline
 
 Build new dataset that composed with generated parse trees. \[`right-branched` / `left-brancehd` / `random` / `right-binarized` / `left-binarized`\] parse trees are generated for each sentence in given dataset.
@@ -55,6 +51,16 @@ You can include or exclude options for languages, factors and splits in script.
 
 ## Train
 
+### (Optional) Prepare parse trees from pre-trained parsers
+
+Our model uses different 3 set of parse trees that are parsed by 3 different parsers (Structformer, NBL-PCFG, FGG-TNPCFG).
+
+### (Optional) Prepare pre-trained model
+
+You can download our pre-trained model from [here](TBA) (TBA).
+
+### Train Parse-focused TN-PCFG
+
 **Parse-focused TN-PCFG**
 
 ```bash
@@ -67,8 +73,6 @@ python train.py \
 ```bash
 python evaluate.py \
 --load_from_dir "[PATH TO LOG]" \
---decode_type mbr \
---eval_dep 1 
 ```
 
 ## Paring

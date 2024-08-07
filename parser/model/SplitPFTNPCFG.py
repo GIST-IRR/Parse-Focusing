@@ -7,6 +7,9 @@ from ..pcfgs.pcfg import PCFG
 
 
 class SplitPFTNPCFG(PFTNPCFG):
+    def __init__(self, args):
+        args.V += 3
+        super().__init__(args)
 
     def split_unknown(self, words, pos):
         n_words = words.clone()
@@ -15,15 +18,14 @@ class SplitPFTNPCFG(PFTNPCFG):
             pos_tags = list(chain.from_iterable(pos))
             new_tok = []
             for i in unk_idx:
-                match pos_tags[i]:
-                    case "NN":
-                        new_tok.append(10003)
-                    case "JJ":
-                        new_tok.append(10004)
-                    case "VB":
-                        new_tok.append(10005)
-                    case _:
-                        new_tok.append(1)
+                if "NN" in pos_tags[i]:
+                    new_tok.append(10003)
+                elif "JJ" in pos_tags[i]:
+                    new_tok.append(10004)
+                elif "VB" in pos_tags[i]:
+                    new_tok.append(10005)
+                else:
+                    new_tok.append(1)
             unk_uidx = torch.unravel_index(
                 torch.tensor(unk_idx).int(), words.shape
             )
@@ -32,29 +34,6 @@ class SplitPFTNPCFG(PFTNPCFG):
 
     def loss(self, input, pos, **kwargs):
         words = input["word"]
-        # Split Unknown tokens
-        # n_words = input["word"].where(input["word"] < 3, input["word"] + 3)
-        # n_words = words.clone()
-        # unk_idx = (input["word"].flatten() == 1).nonzero().flatten().tolist()
-        # if len(unk_idx) != 0:
-        #     pos_tags = list(chain.from_iterable(pos))
-        #     new_tok = []
-        #     for i in unk_idx:
-        #         match pos_tags[i]:
-        #             case "NN":
-        #                 new_tok.append(10003)
-        #             case "JJ":
-        #                 new_tok.append(10004)
-        #             case "VB":
-        #                 new_tok.append(10005)
-        #             case _:
-        #                 new_tok.append(1)
-        #     unk_uidx = torch.unravel_index(
-        #         torch.tensor(unk_idx).int(), input["word"].shape
-        #     )
-        #     n_words[unk_uidx] = torch.tensor(
-        #         new_tok, device=input["word"].device
-        #     )
         n_words = self.split_unknown(words, pos)
 
         b, seq_len = words.shape[:2]

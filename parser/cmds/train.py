@@ -54,7 +54,7 @@ class Train(CMD):
             pickle.dump(dataset.word_vocab, f)
         # Update vocab size
         # Add three different unknown tokens
-        args.model.update({"V": len(dataset.word_vocab) + 3})
+        args.model.update({"V": len(dataset.word_vocab)})
 
         # Setup model
         set_model_dir("parser.model")
