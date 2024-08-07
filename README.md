@@ -24,21 +24,23 @@ If you need to download the datasets, please refer to [TN-PCFG](https://github.c
 You can directly use the propocessed pickle file or create pickle file by your own
 
 ```bash
-python  preprocessing.py  --train_file path/to/your/file --val_file path/to/your/file --test_file path/to/your/file  --cache path/
+python -m preprocessing.preprocessing \
+--dir [path_to_dir_that_contain_dataset_txt]
+--save_dir [path_to_save_dataset]
 ```
 
-### Prepare pre-trained model
+### (Optional) Prepare pre-trained model
 
 You can download our pre-trained model from [here](TBA) (TBA).
 
-### Generating dataset for baseline
+### (Optional) Generating dataset for baseline
 
 Build new dataset that composed with generated parse trees. \[`right-branched` / `left-brancehd` / `random` / `right-binarized` / `left-binarized`\] parse trees are generated for each sentence in given dataset.
 
 ```bash
 python -m preprocessing.generate_focused_parse \
---factor [right-binarized] \
---vocab [vocab/english.vocab] \
+--factor [right-binarized/left-binarized/random/right-branched/left-branched] \
+--vocab [path_to_vocab] \
 --input [path_to_dataset] \
 --output [path_to_save]
 ```

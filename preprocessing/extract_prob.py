@@ -23,6 +23,20 @@ def main(filepath, vocab, output, horzMarkov=0, normalize=False, xbar=False):
         )
         t.collapse_unary(collapsePOS=True)
 
+    # Define criterion for splitting
+    def depth(tree):
+        return tree.height()
+
+    def length(tree):
+        return len(tree.leaves())
+
+    print("[INFO] Status Test")
+    print(
+        f"dataset contains : total {len(trees)}\n"
+        f"\tLength: {min(map(length, trees))} - {max(map(length, trees))}\n"
+        f"\tDepth: {min(map(depth, trees))} - {max(map(depth, trees))}"
+    )
+
     # Load vocab
     with open(vocab, "rb") as f:
         vocab = pickle.load(f)
