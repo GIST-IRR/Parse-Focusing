@@ -158,7 +158,6 @@ def main(
         for x, y in t:
             result = model.evaluate(
                 x,
-                y["pos"],
                 decode_type=decode_type,
                 eval_dep=eval_dep,
             )
