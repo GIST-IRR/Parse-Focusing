@@ -171,7 +171,7 @@ class FTNPCFG(PCFG_module):
     def evaluate(
         self,
         input,
-        decode_type,
+        decode_type="mbr",
         depth=0,
         label=False,
         rule_update=False,
