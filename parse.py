@@ -163,11 +163,13 @@ def main(
             )
             # Save predicted parse trees
             result["prediction"] = list(map(sort_span, result["prediction"]))
+            if "word" not in result.keys():
+                result["word"] = x["word"]
             parse_trees += [
                 {
                     "sentence": y["sentence"][i],
                     # "word": x["word"][i].tolist(),
-                    "word": result["word"].tolist(),
+                    "word": result["word"][i].tolist(),
                     "gold_tree": y["gold_tree"][i],
                     "pred_tree": result["prediction"][i],
                 }
