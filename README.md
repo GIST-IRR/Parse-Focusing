@@ -72,13 +72,18 @@ python train.py \
 
 ```bash
 python evaluate.py \
---load_from_dir "[PATH TO LOG]" \
+--load_from_dir [path_to_log_dir]
 ```
 
 ## Paring
 
 ```bash
-python parse.py --load_from_dir
+python parse.py \
+--load_from_dir [path_to_log_dir] \
+--dataset [path_to_dataset_to_parse] \
+--decode_type [viterbi/mbr] \
+--output [path_to_parse_tree_to_create] \
+--vocab [path_to_vocab]
 ```
 
 ## Out-of-memory

@@ -127,7 +127,7 @@ def main(
     word_vocab = pickle.load(open(vocab, "rb"))
     dataset = get_dataset(dataset_path, word_vocab)
 
-    args.model.update({"V": len(word_vocab) + 3})
+    args.model.update({"V": len(word_vocab)})
     set_model_dir("parser.model")
     model = get_model_args(args.model, device)
 
