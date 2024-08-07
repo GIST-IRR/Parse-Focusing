@@ -77,7 +77,6 @@ class Train(CMD):
         total_time = timedelta()
         best_e, best_metric = 1, Metric()
         log.info(self.optimizer)
-        log.info(args)
         eval_max_len = getattr(args.test, "max_len", None)
         eval_loader = dataset.val_dataloader(max_len=eval_max_len)
 
@@ -217,12 +216,23 @@ class Train(CMD):
             metric_list = {
                 "Likelihood": dev_ll.score,
                 "F1": dev_f1_metric.sentence_uf1,
-                "F1_left": dev_left_metric.sentence_uf1,
-                "F1_right": dev_right_metric.sentence_uf1,
                 "Exact": dev_f1_metric.sentence_ex,
-                "Exact_left": dev_left_metric.sentence_ex,
-                "Exact_right": dev_right_metric.sentence_ex,
             }
+            if left_binarization:
+                metric_list.update(
+                    {
+                        "F1_left": dev_left_metric.sentence_uf1,
+                        "Exact_left": dev_left_metric.sentence_ex,
+                    }
+                )
+            if right_binarization:
+                metric_list.update(
+                    {
+                        "F1_right": dev_right_metric.sentence_uf1,
+                        "Exact_right": dev_right_metric.sentence_ex,
+                    }
+                )
+
             for k, v in metric_list.items():
                 self.writer.add_scalar(f"{tag}/{k}", v, epoch)
 

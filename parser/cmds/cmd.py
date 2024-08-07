@@ -220,6 +220,8 @@ class CMD(object):
         metric_uas = UAS()
         metric_ll = LikelihoodMetric()
 
+        print("decoding mode:{}".format(decode_type))
+        print("evaluate_dep:{}".format(eval_dep))
         t = tqdm(
             loader,
             total=int(len(loader)),
@@ -227,8 +229,6 @@ class CMD(object):
             leave=True,
             desc="Validation",
         )
-        print("decoding mode:{}".format(decode_type))
-        print("evaluate_dep:{}".format(eval_dep))
 
         depth = (
             self.args.test.depth - 2 if hasattr(self.args.test, "depth") else 0

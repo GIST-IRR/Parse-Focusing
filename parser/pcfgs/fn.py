@@ -5,7 +5,7 @@ To save memory of the inside algorithm.
 '''
 def checkpoint(func):
     def wrapper(*args, **kwargs):
-        return ckp(func, *args, **kwargs)
+        return ckp(func, *args, **kwargs, use_reentract=True)
     return wrapper
 
 
