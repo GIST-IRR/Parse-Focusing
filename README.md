@@ -1,7 +1,7 @@
 # Parse-focused Neural PCFG
 
 Source code of ACL2024 Findings [Structural Optimization Ambiguity and Simplicity Bias in Unsupervised Neural Grammar Induction](https://arxiv.org/abs/2407.16181).
-Our code edited based on [TN-PCFG](https://github.com/sustcsonglin/TN-PCFG).
+Our code is based on the [TN-PCFG](https://github.com/sustcsonglin/TN-PCFG).
 
 ## Overview
 
@@ -21,17 +21,19 @@ pip install -r requirements.txt
 
 If you need to download the datasets, please refer to [TN-PCFG](https://github.com/sustcsonglin/TN-PCFG).
 
-You can directly use the propocessed pickle file or create pickle file by your own
+You can directly use the propocessed pickle file or create pickle file by yourself.
+
+If you want to reproduce model yourself, download the datasets to local directory `data/raw` and follow the procedures below.
 
 ```bash
 python -m preprocessing.preprocessing \
---dir [path_to_dir_that_contain_dataset_txt]
---save_dir [path_to_save_dataset]
+--dir data/raw
+--save_dir data/english
 ```
 
 ### (Optional) Generating dataset for baseline
 
-Build new dataset that composed with generated parse trees. \[`right-branched` / `left-brancehd` / `random` / `right-binarized` / `left-binarized`\] parse trees are generated for each sentence in given dataset.
+Build new dataset that composed with generated parse trees. \[`right-branched` / `left-brancehd` / `random` / `right-binarized` / `left-binarized`\] parse trees are generated for each sentence in the given dataset.
 
 ```bash
 python -m preprocessing.generate_focused_parse \
@@ -47,95 +49,147 @@ If you want to generate datasets for all languages, factors, and splits (train, 
 ./generate_focused_parse.sh
 ```
 
-You can include or exclude options for languages, factors and splits in script.
+You can include or exclude options for languages, factors and splits in the script.
 
 ## Train
 
 ### (Optional) Prepare parse trees from pre-trained parsers
 
-Our model uses different 3 set of parse trees that are parsed by 3 different parsers (Structformer, NBL-PCFG, FGG-TNPCFG).
+Our model uses three sets of parse trees parsed by three different parsers (Structformer, NBL-PCFG, FGG-TNPCFG).
 
 ### (Optional) Prepare pre-trained model
 
 You can download our pre-trained model from [here](TBA) (TBA).
+You can evaluate the performance of the model without any training.
 
 ### Train Parse-focused TN-PCFG
+
+**FGG-TNPCFG**
+```bash
+python train.py \
+--conf ftnpcfg_eng_nt30_t60.yaml
+```
 
 **Parse-focused TN-PCFG**
 
 ```bash
 python train.py \
---conf pftnpcfg_r500_nt250_t500_curriculum0.yaml
+--conf pftnpcfg_eng_nt30_t60.yaml
 ```
 
+After training, the path to the save directory is printed. It may be downloaded at `log/pftnpcfg_eng_nt30_t60/PFTNPCFG[datetime]`.
+
 ## Evaluation
+
+You can use a model that you download from us or trained by yourself for `path_to_log_dir`. 
 
 ```bash
 python evaluate.py \
 --load_from_dir [path_to_log_dir]
 ```
+The CSV file with the results is saved in parent directory of `path_to_log_dir`. For instance, `log/pftnpcfg_eng_nt30_t60/pftnpcfg_eng_nt30_t60.csv`.
+
+This CSV file has the following format:
+
+```csv
+save dir, sentence-level F1, corpus-level F1, likelihood, perplexity
+```
 
 ## Paring
+
+> [!CAUTION]
+> If you use a large grammar model (almost larger than NT 300 / T 600), Viterbi parsing may not work due to out-of-memory issues.
+
+> [!NOTE]
+> MBR decoding does not predict constituent symbol labels.
+> For detailed analysis accroding to symbol labels, it is better to use Viterbi than MBR.
 
 ```bash
 python parse.py \
 --load_from_dir [path_to_log_dir] \
---dataset [path_to_dataset_to_parse] \
---decode_type [viterbi/mbr] \
---output [path_to_parse_tree_to_create] \
---vocab [path_to_vocab]
+--dataset data/raw/english-test.txt \
+--decode_type viterbi \
+--output parsed/pftnpcfg_eng_nt30_t60_test.txt \
 ```
 
 ## Out-of-memory
 
-If you encounter OOM, you should adjust the batch size in the yaml file. Normally, for GPUs with 12GB memory, batch size=4~8 is ok, while for evaluation of NBL-PCFGs, you should set a smaller batch size (1 or 2).  
+If you encounter OOM, you should adjust the batch size in the YAML file.
+
+For GPUs with 12GB memory, the following batch sizes are available for each base model:
+
+* FTN-PCFGs = 16~32
+* TN-PCFGs = 8~16
+* N-PCFGs = 4~8 
 
 ## Post-processing
 
 ### String to Tree
 
-Transform parse trees with string format to NLTK Trees and save to file.
+Transform parse trees in string format to NLTK Trees and save to file.
 
 ```bash
 python -m postprocessing.string_to_tree \
---filepath "trees/train_seed0.txt" \
---vocab "vocab/english.vocab" \
---output "trees/train_seed0_trees.pt"
+--filepath parsed/pftnpcfg_eng_nt30_t60_test.txt \
+--vocab [path_to_log_dir]/word_vocab.pkl \
+--output nltk_tree/pftnpcfg_eng_nt30_t60_test.pkl
 ```
 
-### Tree to Span
+### String to Span
 
-Transform parse trees with string format to spans and save to file.
+Transform parse trees in string format to spans and save to file.
 
 ```bash
-python -m postprocessing.tree_to_span \
---filepath "trees/train_seed0_trees.pt" \
---vocab "vocab/english.vocab" \
---output "trees/train_seed0_span.pt"
+python -m postprocessing.string_to_span \
+--filepath parsed/pftnpcfg_eng_nt30_t60_test.txt \
+--vocab [path_to_log_dir]/word_vocab.pkl \
+--output span_tree/pftnpcfg_eng_nt30_t60_test.pkl
 ```
 
 ## Analysis
 
 ### Correlation between F1 and NLL
 
-Each CSV Files have to have the following format:
+Each CSV Files should have the following format:
+
 ```
 f1 score, likelihood
 f1 score, likelihood
 ...
 ```
 
+If you want to get a CSV file from evaluation CSV file, use the command below.
+
+```bash
+awk -F "," '{ print $2, $4 }' log/pftnpcfg_eng_nt30_t60/pftnpcfg_eng_nt30_t60.csv > pftnpcfg_results.csv
+```
+
 `scatter_with_hist.py`: `Fig. 2(a)` Visualization for correlation between F1 and LL for single model with histogram.
+
+```bash
+python -m analyzer.correlation.scatter_with_hist \
+--filepath pftnpcfg_results.csv
+```
 
 `scatter_comparison.py`: `Fig. 2(b)` Visualization for correlation between F1 and LL for various models.
 
+```bash
+python -m analyzer.correlation.scatter_comparision \
+--filepath pftnpcfg_results.csv ftnpcfg_results.csv \
+--label PFTNPCFG FTNPCFG
+```
+
 ### Trees
 
-(최종 정리 필요) `compare_trees.py`: `Tab. 1` Calculate F1 score and IoU score for given parse trees.
+> [!WARNING]
+> Some analyzing tools below are not completely work.
+> It will be corrected soon.
+
+`compare_trees.py`: `Tab. 1` Calculate F1 score and IoU score for given parse trees.
 
 `rule_frequency.py`: `Fig. 5` Visualize sorted distribution for frequencies that observed rules in parse trees.
 
-(정리 필요) `common_uncommon_hist.py`: `Fig. 9` Visualize the degree of rareness for rules and the accuracy according to the degree of rareness.
+`common_uncommon_hist.py`: `Fig. 9` Visualize the degree of rareness for rules and the accuracy according to the degree of rareness.
 
 ### The number of Unique rules
 

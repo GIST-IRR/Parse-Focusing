@@ -332,3 +332,5 @@ class Train(CMD):
 
         self.writer.flush()
         self.writer.close()
+        log.info("End Training.")
+        log.info(f"The model is saved in the directory: {args.save_dir}")

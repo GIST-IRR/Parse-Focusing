@@ -124,7 +124,12 @@ def main(
     print(f"Set the device with ID {device} visible")
     device = f"cuda:{device}" if torch.cuda.is_available() else "cpu"
 
-    word_vocab = pickle.load(open(vocab, "rb"))
+    if vocab is not None:
+        vocab_path = vocab
+    else:
+        vocab_path = Path(load_from_dir) / "word_vocab.pkl"
+    word_vocab = pickle.load(open(vocab_path, "rb"))
+
     dataset = get_dataset(dataset_path, word_vocab)
 
     args.model.update({"V": len(word_vocab)})
@@ -198,6 +203,8 @@ def main(
         output_tree.append(pred_tree._pformat_flat("", "()", False))
 
     output_path = Path(output)
+    if not output_path.parent.exists():
+        output_path.parent.mkdir(exist_ok=True)
     output_path.write_text("\n".join(output_tree))
     gold_path = output_path.with_suffix(".gold.txt")
     gold_path.write_text("\n".join(dataset["tree_str"]))
@@ -213,7 +220,8 @@ if __name__ == "__main__":
         "--output", required=True, help="The path to the output file"
     )
     parser.add_argument(
-        "--vocab", required=True, help="The path to the vocabulary file"
+        "--vocab",
+        help="The path to the vocabulary file. If you are not specify the path, vocab in log dir is used automatically.",
     )
     parser.add_argument(
         "--batch_size", default=4, type=int, help="The batch size for parsing"
