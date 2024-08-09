@@ -49,7 +49,7 @@ class Evaluate(CMD):
         self.vocab = dataset.word_vocab
 
         # Get Model and Load
-        args.model.update({"V": len(dataset.word_vocab)})
+        args.model.update({"V": len(dataset.word_vocab), "eval_mode": True})
         set_model_dir("parser.model")
         self.model = get_model_args(args.model, self.device)
 

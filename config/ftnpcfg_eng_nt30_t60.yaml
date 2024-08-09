@@ -1,0 +1,52 @@
+device: 0
+save_dir : 'log'
+seed: 16051483
+
+data:
+  train_file: 'data/english/english-standard-train.pkl'
+  val_file: 'data/english/english-standard-valid.pkl'
+  test_file: 'data/english/english-standard-test.pkl'
+  use_cache: 0
+  cache: 0
+  vocab_cache: 'data/ptb-vocab.pickle'
+  train_dataset_cache: 'data/ptb-train-cache.pickle'
+  val_dataset_cache: 'data/ptb-val-cache.pickle'
+  test_dataset_cache: 'data/ptb-val-cache.pickle'  
+  vocab_type: 'max_size'
+  vocab_size: 10000
+  min_freq: 2
+
+# NPCFG
+model:
+  name: 'FTNPCFG' 
+  NT: 30
+  T: 60
+  r_dim: 1000
+  s_dim: 512
+  word_emb_size: 200
+  shared: 0
+
+train:
+  batch_size: 16
+  max_epoch: 10
+  max_len: 40
+  min_len: 0
+  #whether to use curriculum learning stragegy.
+  curriculum: 0
+  start_len: 20
+  increment: 10
+  patience: 5
+  clip: 3
+
+test:
+  batch_size: 16
+  max_tokens: 100
+  bucket: 32
+  decode: 'mbr'
+  sampler: 'batch'
+  depth: 40
+
+optimizer:
+  name: 'Adam'
+  lr: 0.002
+  betas: [0.75, 0.999]

@@ -4,7 +4,6 @@ log/
 .vscode/
 *.pyc
 __pycache__/
-config/
 figure/
 heatmap/
 *.model
@@ -16,6 +15,11 @@ weights/
 *.pkl
 *.pt
 trees/
+
+# Configurations
+config/*
+!config/ftnpcfg_eng_nt30_t60.yaml
+!config/pftnpcfg_eng_nt30_t60.yaml
 
 # Analyzer
 !analyzer/trees/

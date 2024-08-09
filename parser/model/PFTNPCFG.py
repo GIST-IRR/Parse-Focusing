@@ -106,25 +106,30 @@ class PFTNPCFG(PCFG_module):
 
         self._initialize(mode="xavier_normal")
 
-        self.pretrained_models = getattr(args, "pretrained_models", None)
-        self.parse_trees = []
-        if self.pretrained_models:
-            for model in self.pretrained_models:
-                parses = defaultdict(list)
-                with open(model, "rb") as f:
-                    pts = torch.load(f)
-                if isinstance(pts, dict):
-                    pts = pts["trees"]
-                for t in pts:
-                    n_word = t["word"]
-                    if "pred_tree" in t.keys():
-                        n_tree = [
-                            s[:2] for s in t["pred_tree"] if s[1] - s[0] > 1
-                        ]
-                    elif "tree" in t.keys():
-                        n_tree = [s[:2] for s in t["tree"] if s[1] - s[0] > 1]
-                    parses[str(n_word)] = n_tree
-                self.parse_trees.append(parses)
+        if not getattr(args, "eval_mode", False):
+            self.pretrained_models = getattr(args, "pretrained_models", None)
+            if self.pretrained_models is not None:
+                self.parse_trees = self.prepare_trees(self.pretrained_models)
+            else:
+                self.parse_trees = []
+
+    def prepare_trees(self, model_paths):
+        parse_trees = []
+        for model in model_paths:
+            parses = defaultdict(list)
+            with open(model, "rb") as f:
+                pts = torch.load(f)
+            if isinstance(pts, dict):
+                pts = pts["trees"]
+            for t in pts:
+                n_word = t["word"]
+                if "pred_tree" in t.keys():
+                    n_tree = [s[:2] for s in t["pred_tree"] if s[1] - s[0] > 1]
+                elif "tree" in t.keys():
+                    n_tree = [s[:2] for s in t["tree"] if s[1] - s[0] > 1]
+                parses[str(n_word)] = n_tree
+            parse_trees.append(parses)
+        return parse_trees
 
     def forward(self, **kwargs):
         root = self.root()

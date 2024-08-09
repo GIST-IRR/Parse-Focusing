@@ -19,16 +19,21 @@ pip install -r requirements.txt
 
 ### Prepare dataset
 
-If you need to download the datasets, please refer to [TN-PCFG](https://github.com/sustcsonglin/TN-PCFG).
+We use three datasets PTB, CTB, SPMRL.
 
-You can directly use the propocessed pickle file or create pickle file by yourself.
+If you need to download the datasets, please refer to [TN-PCFG](https://github.com/sustcsonglin/TN-PCFG).
 
 If you want to reproduce model yourself, download the datasets to local directory `data/raw` and follow the procedures below.
 
+> [!IMPORTANT]
+> To preprocess the datasets, the each dataset file has the formatted name such as `[prefix]-train.txt`.
+
+
 ```bash
 python -m preprocessing.preprocessing \
---dir data/raw
---save_dir data/english
+--dir data/raw \
+--save_dir data/english \
+--prefix english
 ```
 
 ### (Optional) Generating dataset for baseline
@@ -57,9 +62,16 @@ You can include or exclude options for languages, factors and splits in the scri
 
 Our model uses three sets of parse trees parsed by three different parsers (Structformer, NBL-PCFG, FGG-TNPCFG).
 
+If you want to train the `Parse-Focused TN-PCFG` using the pre-trained parsers we use, you can download them [here](https://1drv.ms/f/s!AkEpgY1bYqmLlIsO-H38Xf4IZzf7tg?e=G4iA4O).
+
+To follow the instructions for training with our configuration, place the files in the `pretrained/` directory.
+
 ### (Optional) Prepare pre-trained model
 
-You can download our pre-trained model from [here](TBA) (TBA).
+> [!NOTE]
+> You can evaluate pre-trained model without pre-trained parsers.
+
+You can download our pre-trained model from [here](https://1drv.ms/f/s!AkEpgY1bYqmLlIsPmZW4SVHBskt3Fg?e=ssikxV).
 You can evaluate the performance of the model without any training.
 
 ### Train Parse-focused TN-PCFG
@@ -67,14 +79,14 @@ You can evaluate the performance of the model without any training.
 **FGG-TNPCFG**
 ```bash
 python train.py \
---conf ftnpcfg_eng_nt30_t60.yaml
+--conf config/ftnpcfg_eng_nt30_t60.yaml
 ```
 
 **Parse-focused TN-PCFG**
 
 ```bash
 python train.py \
---conf pftnpcfg_eng_nt30_t60.yaml
+--conf config/pftnpcfg_eng_nt30_t60.yaml
 ```
 
 After training, the path to the save directory is printed. It may be downloaded at `log/pftnpcfg_eng_nt30_t60/PFTNPCFG[datetime]`.
@@ -116,11 +128,11 @@ python parse.py \
 
 If you encounter OOM, you should adjust the batch size in the YAML file.
 
-For GPUs with 12GB memory, the following batch sizes are available for each base model:
+For GPUs with 12GB memory, the following batch sizes are available for each grammar size:
 
-* FTN-PCFGs = 16~32
-* TN-PCFGs = 8~16
-* N-PCFGs = 4~8 
+* FTN-PCFGs
+    * NT=4500 / T=9000: ~16
+    * NT=30 / T=60: ~64
 
 ## Post-processing
 
@@ -244,3 +256,7 @@ python3 -m analyzer.homo_hetero \
 --output "[output file path]" \
 --difference
 ```
+
+## Contact
+
+If you have any questions, please remains in `issues` or contact to me (jinwookpark2296@gmail.com).
